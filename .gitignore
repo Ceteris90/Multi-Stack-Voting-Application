@@ -1,0 +1,47 @@
+# Exclude Python virtual environment directories
+.venv
+# Exclude .vscode directory
+.vscode/    
+
+# Exclude Ansible inventory and host files
+inventory.ini
+hosts
+# Exclude Ansible configuration files
+ansible.cfg
+# Exclude Ansible log files
+# Exclude Ansible vault files
+*.vault
+# Exclude Ansible roles and playbooks
+roles/
+playbooks/
+# Exclude Ansible facts and cache
+facts/
+cache/
+# Exclude Ansible temporary files
+*.retry
+*.log
+*.tmp
+
+
+# Exclude myironhackerkey.pem file
+myironhackerkey.pem
+
+/terraform/bootstrap/
+/terraform/environments/dev/.terraform/
+/terraform/environments/dev/.terraform.lock.
+/terraform/environments/dev/.terraform.tfstate
+/terraform/environments/dev/.terraform.tfstate.backup
+/terraform/environments/dev/*.tfvars
+/terraform/environments/dev/*.tfvars.json
+/terraform/environments/dev/*.tfvars.yaml
+/terraform/environments/dev/*.tfvars.yml
+/terraform/environments/dev/*.tfvars.tfvars
+/terraform/environments/dev/*.tfvars.tfvars.json
+/terraform/environments/dev/*.tfvars.tfvars.yaml
+/terraform/environments/dev/*.tfvars.tfvars.yml
+/terraform/environments/dev/*.tfvars.tfvars.tfvars
+/terraform/environments/dev/*.tfvars.tfvars.tfvars.json
+/terraform/environments/dev/*.tfvars.tfvars.tfvars.yaml
+/terraform/environments/dev/*.tfvars.tfvars.tfvars.yml
+/terraform/environments/dev/.terraform.lock.hcl
+
