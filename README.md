@@ -1,7 +1,8 @@
 <!-- © 2026 | Ironhack -->
 
 ---
-<img width="1380" height="752" alt="Gemini_Generated_Image_ovl4kyovl4kyovl4" src="https://github.com/<img width="1501" height="1114" alt="Aws_web_voting" />
+<img width="1501" height="1114" alt="Aws_web_voting" src="https://github.com/user-attachments/assets/a9b0ad77-5352-4c4c-89ff-f7ff84aea771" />
+
 # Multi-Stack Voting Application
 
 This repository is a practical DevOps demo project that shows how a simple voting application evolves into a real distributed system with containers, cloud infrastructure, and automation. It combines a Python voting frontend, a Redis queue, a .NET worker, a PostgreSQL database, and a Node.js result dashboard in one end-to-end workflow.
