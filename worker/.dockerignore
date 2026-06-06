@@ -5,3 +5,9 @@ obj/
 *.git
 *.gitignore
 .vscode/
+# Exclude Terraform files
+*.tf
+*.tfvars
+*.tfstate
+*.tfstate.backup
+.terraform/

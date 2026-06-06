@@ -1,8 +1,8 @@
 FROM node:18-slim
 
-# add curl for healthcheck
+# add curl for healthcheck and CA certificates for TLS/RDS connections
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl tini && \
+    apt-get install -y --no-install-recommends curl tini ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/local/app

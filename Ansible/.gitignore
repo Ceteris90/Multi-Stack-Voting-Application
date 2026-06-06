@@ -1,0 +1,28 @@
+# Exclude Ansible inventory and host files
+inventory.ini
+hosts
+
+# Exclude Ansible configuration files
+ansible.cfg
+
+# Exclude Ansible log files
+
+# Exclude Ansible vault files
+*.vault
+# Exclude Ansible roles and playbooks
+roles/
+playbooks/
+
+# Exclude Ansible facts and cache
+facts/
+cache/
+# Exclude Ansible temporary files
+*.retry
+*.log
+*.tmp
+
+# Exclude myironhackerkey.pem file
+myironhackerkey.pem
+
+
+

@@ -41,11 +41,21 @@ var pgUser = process.env.PG_USER || 'postgres';
 var pgPassword = process.env.PG_PASSWORD || 'postgres';
 var pgDatabase = process.env.PG_DATABASE || 'postgres';
 
-var connectionString = `postgresql://${pgUser}:${pgPassword}@${pgHost}:${pgPort}/${pgDatabase}`;
-console.log(connectionString);
+var connectionString = process.env.DATABASE_CONNECTION_STRING
+  || process.env.CONNECTION_STRING
+  || `postgresql://${pgUser}:${pgPassword}@${pgHost}:${pgPort}/${pgDatabase}`;
+
+var useSsl = process.env.PG_SSL === 'true'
+  || (process.env.DATABASE_CONNECTION_STRING || '').indexOf('sslmode=') !== -1
+  || (process.env.CONNECTION_STRING || '').indexOf('sslmode=') !== -1;
+
+console.log('Using PostgreSQL connection string:', connectionString);
 
 var { Pool } = require('pg');
-var pool = new Pool({ connectionString: connectionString });
+var pool = new Pool({
+  connectionString: connectionString,
+  ssl: useSsl ? { rejectUnauthorized: false } : false
+});
 
 async.retry(
   { times: 1000, interval: 1000 },

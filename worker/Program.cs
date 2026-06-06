@@ -24,8 +24,12 @@ namespace Worker
                 
                 var redisHost = Environment.GetEnvironmentVariable("REDIS_HOST") ?? "redis";
 
+                var useSsl = Environment.GetEnvironmentVariable("DB_SSL") == "true" || Environment.GetEnvironmentVariable("PG_SSL") == "true";
+
                 // Construct the connection strings
-                var pgConnectionString = $"Server={dbHost};Username={dbUsername};Password={dbPassword};Database={dbName}";
+                var pgConnectionString = useSsl
+                    ? $"Server={dbHost};Username={dbUsername};Password={dbPassword};Database={dbName};Ssl Mode=Require;Trust Server Certificate=true"
+                    : $"Server={dbHost};Username={dbUsername};Password={dbPassword};Database={dbName}";
                 Console.WriteLine($"Database connection string: {pgConnectionString}");
                 var redisConnectionString = redisHost;
 
