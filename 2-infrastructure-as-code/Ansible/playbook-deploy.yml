@@ -1,0 +1,54 @@
+---
+- name: Deploy backend services
+  hosts: backend
+  become: "{{ ansible_become | default(false) }}"
+  gather_facts: false
+  vars_files:
+    - group_vars/all.yml
+  tasks:
+    - name: Start Redis container
+      community.docker.docker_container:
+        name: "{{ redis_container_name }}"
+        image: "{{ redis_image }}"
+        state: started
+        restart_policy: "{{ container_restart_policy }}"
+        ports:
+          - "{{ redis_host_port }}"
+
+    - name: Start worker container
+      community.docker.docker_container:
+        name: "{{ worker_container_name }}"
+        image: "{{ worker_image }}"
+        state: started
+        pull: true
+        restart_policy: "{{ container_restart_policy }}"
+        network_mode: "{{ worker_network_mode }}"
+        env: "{{ worker_env }}"
+
+- name: Deploy frontend services
+  hosts: frontend
+  become: "{{ ansible_become | default(false) }}"
+  gather_facts: false
+  vars_files:
+    - group_vars/all.yml
+  tasks:
+    - name: Start vote container
+      community.docker.docker_container:
+        name: "{{ vote_container_name }}"
+        image: "{{ vote_image }}"
+        state: started
+        pull: true
+        restart_policy: "{{ container_restart_policy }}"
+        env: "{{ vote_env }}"
+        ports:
+          - "{{ vote_host_port }}"
+
+    - name: Start results container
+      community.docker.docker_container:
+        name: "{{ result_container_name }}"
+        image: "{{ result_image }}"
+        state: started
+        pull: true
+        restart_policy: "{{ container_restart_policy }}"
+        network_mode: "{{ result_network_mode }}"
+        env: "{{ result_env }}"

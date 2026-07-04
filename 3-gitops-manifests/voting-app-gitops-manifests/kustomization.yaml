@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: voting-app
+resources:
+  - namespace.yaml
+  - 1-voting-frontend
+  - 2-data-queue
+  - 3-background-worker
+  - 4-database
+  - 5-results-dashboard
+  - ingress.yaml
+  - cert-manager.yaml
+  - ingress-controller-nginx.yaml
+  - ingress-controller-alb.yaml
+images:
+  - name: voting-app-vote
+    newName: your-registry.example.com/voting-app-vote
+    newTag: latest
+  - name: voting-app-result
+    newName: your-registry.example.com/voting-app-result
+    newTag: latest
+  - name: voting-app-worker
+    newName: your-registry.example.com/voting-app-worker
+    newTag: latest

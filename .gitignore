@@ -1,47 +1,97 @@
-# Exclude Python virtual environment directories
-.venv
-# Exclude .vscode directory
-.vscode/    
+# =========================
+# OS / Editor
+# =========================
+.DS_Store
+.vscode/
 
-# Exclude Ansible inventory and host files
-inventory.ini
-hosts
-# Exclude Ansible configuration files
-ansible.cfg
-# Exclude Ansible log files
-# Exclude Ansible vault files
+# =========================
+# Secrets / Credentials
+# =========================
+deployment.config
+scripts/deployment.config
+gitops-values.env
+3-gitops-manifests/voting-app-gitops-manifests/gitops-values.env
+*.pem
+*.key
+*.p12
 *.vault
-# Exclude Ansible roles and playbooks
-roles/
-playbooks/
-# Exclude Ansible facts and cache
-facts/
-cache/
-# Exclude Ansible temporary files
-*.retry
+.env
+.env.*
+*.secret
+*.secrets
+*secret*.yaml
+*secret*.yml
+
+# =========================
+# Logs / Temp
+# =========================
 *.log
 *.tmp
+*.retry
 
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+.venv/
+venv/
 
-# Exclude myironhackerkey.pem file
-myironhackerkey.pem
+# =========================
+# Node.js
+# =========================
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-/terraform/bootstrap/
-/terraform/environments/dev/.terraform/
-/terraform/environments/dev/.terraform.lock.
-/terraform/environments/dev/.terraform.tfstate
-/terraform/environments/dev/.terraform.tfstate.backup
-/terraform/environments/dev/*.tfvars
-/terraform/environments/dev/*.tfvars.json
-/terraform/environments/dev/*.tfvars.yaml
-/terraform/environments/dev/*.tfvars.yml
-/terraform/environments/dev/*.tfvars.tfvars
-/terraform/environments/dev/*.tfvars.tfvars.json
-/terraform/environments/dev/*.tfvars.tfvars.yaml
-/terraform/environments/dev/*.tfvars.tfvars.yml
-/terraform/environments/dev/*.tfvars.tfvars.tfvars
-/terraform/environments/dev/*.tfvars.tfvars.tfvars.json
-/terraform/environments/dev/*.tfvars.tfvars.tfvars.yaml
-/terraform/environments/dev/*.tfvars.tfvars.tfvars.yml
-/terraform/environments/dev/.terraform.lock.hcl
+# =========================
+# .NET
+# =========================
+**/bin/
+**/obj/
+
+# =========================
+# Terraform
+# =========================
+**/.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.terraform.tfstate.lock.info
+*.tfstate.lock.info
+terraform.tfvars
+terraform.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+tfplan
+*.tfplan
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# =========================
+# Docker / Runtime Secrets
+# =========================
+.dockerconfigjson
+dockerconfigjson
+**/docker-compose.override.yml
+**/docker-compose.override.yaml
+**/docker-secret*
+**/*docker*secret*
+
+# =========================
+# Ansible (generated/local files)
+# =========================
+2-infrastructure-as-code/Ansible/generated_inventory.ini
+2-infrastructure-as-code/Ansible/inventory.ini
+2-infrastructure-as-code/Ansible/hosts
+2-infrastructure-as-code/Ansible/ansible.cfg
+2-infrastructure-as-code/Ansible/facts/
+2-infrastructure-as-code/Ansible/cache/
 

@@ -1,0 +1,51 @@
+---
+docker_user: "{{ ansible_docker_user | default('ubuntu') }}"
+docker_base_packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - software-properties-common
+  - gnupg
+  - telnet
+
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+
+container_restart_policy: always
+redis_container_name: redis-queue
+redis_image: redis:alpine
+redis_host_port: "6379:6379"
+
+worker_container_name: integration-worker
+worker_image: ceteris90/worker:latest
+worker_network_mode: host
+worker_env:
+  REDIS_HOST: "{{ redis_host | default('127.0.0.1') }}"
+  DB_HOST: "{{ db_host | default('localhost') }}"
+  DB_PORT: "{{ db_port | default('5432') }}"
+  DB_USERNAME: "{{ db_username | default('postgres') }}"
+  DB_PASSWORD: "{{ db_password | default('postgres') }}"
+  DB_NAME: "{{ db_name | default('postgres') }}"
+  DB_SSL: "true"
+
+vote_container_name: voting-app
+vote_image: ceteris90/vote:latest
+vote_host_port: "80:80"
+vote_env:
+  REDIS_HOST: "{{ redis_host | default('127.0.0.1') }}"
+
+result_container_name: results-app
+result_image: ceteris90/result:latest
+result_network_mode: host
+result_env:
+  PG_HOST: "{{ pg_host | default(db_host | default('localhost')) }}"
+  PG_PORT: "{{ pg_port | default(db_port | default('5432')) }}"
+  PG_USER: "{{ pg_user | default(db_username | default('postgres')) }}"
+  PG_PASSWORD: "{{ pg_password | default(db_password | default('postgres')) }}"
+  PG_DATABASE: "{{ pg_database | default(db_name | default('postgres')) }}"
+  PG_SSL: "true"
+  DATABASE_CONNECTION_STRING: "postgresql://{{ pg_user | default(db_username | default('postgres')) }}:{{ pg_password | default(db_password | default('postgres')) }}@{{ pg_host | default(db_host | default('localhost')) }}:{{ pg_port | default(db_port | default('5432')) }}/{{ pg_database | default(db_name | default('postgres')) }}"
+  CONNECTION_STRING: "postgresql://{{ pg_user | default(db_username | default('postgres')) }}:{{ pg_password | default(db_password | default('postgres')) }}@{{ pg_host | default(db_host | default('localhost')) }}:{{ pg_port | default(db_port | default('5432')) }}/{{ pg_database | default(db_name | default('postgres')) }}"
+  PORT: "8080"
