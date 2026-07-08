@@ -1,3 +1,5 @@
+<img width="2207" height="1311" alt="AWS drawio (1)" src="https://github.com/user-attachments/assets/2d10f66c-d40e-432a-a615-e4cab2e10f63" />
+
 # Multi-Stack Voting Application
 
 Production-ready reference for deploying and operating a distributed voting system across local Docker Compose and AWS infrastructure.
