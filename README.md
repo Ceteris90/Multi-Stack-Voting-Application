@@ -2,7 +2,7 @@
 
 # Multi-Stack Voting Application
 
-Production-ready reference for deploying and operating a distributed voting system across local Docker Compose and AWS infrastructure.
+Production-ready reference for deploying and operating a distributed voting system across local Docker Compose and AWS infrastructure Specifically EKS.
 
 ## Overview
 This project contains a multi-service voting application and infrastructure automation stack:
