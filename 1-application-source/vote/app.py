@@ -1,8 +1,9 @@
 from flask import Flask, render_template, request, make_response, g
+from flask_wtf.csrf import CSRFProtect
 from redis import Redis
 import os
 import socket
-import random
+import secrets
 import json
 import logging
 
@@ -14,6 +15,8 @@ redis_port = int(os.getenv('REDIS_PORT', 6379))  # Default Redis port is 6379
 hostname = socket.gethostname()
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', secrets.token_hex(32))
+csrf = CSRFProtect(app)
 
 gunicorn_error_logger = logging.getLogger('gunicorn.error')
 app.logger.handlers.extend(gunicorn_error_logger.handlers)
@@ -29,7 +32,7 @@ def get_redis():
 def hello():
     voter_id = request.cookies.get('voter_id')
     if not voter_id:
-        voter_id = hex(random.getrandbits(64))[2:-1]
+        voter_id = secrets.token_hex(16)
 
     vote = None
 
@@ -47,9 +50,13 @@ def hello():
         hostname=hostname,
         vote=vote,
     ))
-    resp.set_cookie('voter_id', voter_id)
+    cookie_is_secure = request.is_secure or request.headers.get('X-Forwarded-Proto', '').lower() == 'https'
+    resp.set_cookie('voter_id', voter_id, secure=cookie_is_secure, httponly=True, samesite='Lax')
     return resp
 
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=os.getenv('PORT', 80), debug=True, threaded=True)
+    debug_mode = False
+    bind_host = '127.0.0.1'
+    bind_port = int(os.getenv('PORT', 80))
+    app.run(host=bind_host, port=bind_port, debug=debug_mode, threaded=True)

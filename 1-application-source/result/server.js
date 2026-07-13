@@ -1,18 +1,17 @@
-var express = require('express'),
-    async = require('async'),
-    { Pool } = require('pg'),
-    cookieParser = require('cookie-parser'),
-    path = require('path'),
-    app = express(),
-    server = require('http').Server(app),
-    // IMPORTANT: Socket.IO path is /result/socket.io
-    io = require('socket.io')(server, { path: '/result/socket.io' });
+const express = require('express');
+const async = require('async');
+const { Pool } = require('pg');
+const cookieParser = require('cookie-parser');
+const path = require('node:path');
+const app = express();
+const server = require('node:http').Server(app);
+const io = require('socket.io')(server, { path: '/result/socket.io' });
 
-var port = process.env.PORT || 4000;
+const port = process.env.PORT || 4000;
 
 // Create two namespaces: root ("/") and "/result"
-var rootNamespace = io.of('/');      // Default namespace for pages at "/"
-var resultNamespace = io.of('/result'); // Namespace for pages at "/result"
+const rootNamespace = io.of('/');      // Default namespace for pages at "/"
+const resultNamespace = io.of('/result'); // Namespace for pages at "/result"
 
 // Handle connections on the default namespace
 rootNamespace.on('connection', function (socket) {
@@ -35,25 +34,24 @@ resultNamespace.on('connection', function (socket) {
 });
 
 // --- Example PostgreSQL logic (adjust as needed) ---
-var pgHost = process.env.PG_HOST || 'db';
-var pgPort = process.env.PG_PORT || 5432;
-var pgUser = process.env.PG_USER || 'postgres';
-var pgPassword = process.env.PG_PASSWORD || 'postgres';
-var pgDatabase = process.env.PG_DATABASE || 'postgres';
+const pgHost = process.env.PG_HOST || 'db';
+const pgPort = process.env.PG_PORT || 5432;
+const pgUser = process.env.PG_USER || 'postgres';
+const pgPassword = process.env.PG_PASSWORD || 'postgres';
+const pgDatabase = process.env.PG_DATABASE || 'postgres';
 
-var connectionString = process.env.DATABASE_CONNECTION_STRING
+const connectionString = process.env.DATABASE_CONNECTION_STRING
   || process.env.CONNECTION_STRING
   || `postgresql://${pgUser}:${pgPassword}@${pgHost}:${pgPort}/${pgDatabase}`;
 
-var useSsl = process.env.PG_SSL === 'true'
-  || (process.env.DATABASE_CONNECTION_STRING || '').indexOf('sslmode=') !== -1
-  || (process.env.CONNECTION_STRING || '').indexOf('sslmode=') !== -1;
+const useSsl = process.env.PG_SSL === 'true'
+  || (process.env.DATABASE_CONNECTION_STRING || '').includes('sslmode=')
+  || (process.env.CONNECTION_STRING || '').includes('sslmode=');
 
 console.log('Using PostgreSQL connection string:', connectionString);
 
-var { Pool } = require('pg');
-var pool = new Pool({
-  connectionString: connectionString,
+const pool = new Pool({
+  connectionString,
   ssl: useSsl ? { rejectUnauthorized: false } : false
 });
 
@@ -81,7 +79,7 @@ function getVotes(client) {
     if (err) {
       console.error("Error performing query: " + err);
     } else {
-      var votes = collectVotesFromResult(result);
+      const votes = collectVotesFromResult(result);
 
       // Broadcast to both namespaces
       rootNamespace.emit("scores", JSON.stringify(votes));
@@ -94,9 +92,9 @@ function getVotes(client) {
 }
 
 function collectVotesFromResult(result) {
-  var votes = { a: 0, b: 0 };
+  const votes = { a: 0, b: 0 };
   result.rows.forEach(function (row) {
-    votes[row.vote] = parseInt(row.count);
+    votes[row.vote] = Number.parseInt(row.count, 10);
   });
   return votes;
 }
