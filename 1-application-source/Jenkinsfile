@@ -98,17 +98,13 @@ pipeline {
 					if [ -z "${EXTRA_AUTH}" ] && echo "${EFFECTIVE_SONAR_HOST_URL}" | grep -Eq '^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$'; then
 						if curl -sS --max-time 10 -u admin:admin "${EFFECTIVE_SONAR_HOST_URL}/api/authentication/validate" | grep -q '"valid":true'; then
 							tmp_token_name="jenkins-local-${BUILD_NUMBER}-$(date +%s)"
-							tmp_sonar_token=$(curl -sS --max-time 10 -u admin:admin -X POST --data-urlencode "name=${tmp_token_name}" "${EFFECTIVE_SONAR_HOST_URL}/api/user_tokens/generate" | sed -n 's/.*"token":"\\([^"]*\\)".*/\\1/p')
+							tmp_sonar_token=$(curl -sS --max-time 10 -u admin:admin -X POST --data-urlencode "name=${tmp_token_name}" "${EFFECTIVE_SONAR_HOST_URL}/api/user_tokens/generate" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
 							if [ -n "${tmp_sonar_token}" ]; then
 								EXTRA_AUTH="-Dsonar.token=${tmp_sonar_token}"
 								tmp_token_created="true"
-								echo "WARN: Generated temporary local SonarQube token for this build."
+								echo "INFO: Generated temporary local SonarQube token for this build."
 							fi
 						fi
-					fi
-
-					if [ -n "${EFFECTIVE_SONAR_TOKEN}" ]; then
-						EXTRA_AUTH="-Dsonar.token=${EFFECTIVE_SONAR_TOKEN}"
 					fi
 
 					sonar-scanner \
