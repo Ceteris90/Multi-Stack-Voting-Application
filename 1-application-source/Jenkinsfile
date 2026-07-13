@@ -35,6 +35,16 @@ pipeline {
 				sh '''
 					set -e
 
+					tmp_token_name=""
+					tmp_token_created="false"
+					cleanup_tmp_token() {
+						if [ "${tmp_token_created}" = "true" ] && [ -n "${tmp_token_name}" ] && [ -n "${EFFECTIVE_SONAR_HOST_URL:-}" ]; then
+							curl -sS --max-time 10 -u admin:admin -X POST --data-urlencode "name=${tmp_token_name}" "${EFFECTIVE_SONAR_HOST_URL}/api/user_tokens/revoke" >/dev/null || true
+							echo "Revoked temporary local SonarQube token: ${tmp_token_name}"
+						fi
+					}
+					trap cleanup_tmp_token EXIT
+
 					if ! command -v sonar-scanner >/dev/null 2>&1; then
 						echo "sonar-scanner not found on Jenkins host. Install it at /usr/local/bin/sonar-scanner."
 						exit 1
@@ -91,6 +101,7 @@ pipeline {
 							tmp_sonar_token=$(curl -sS --max-time 10 -u admin:admin -X POST --data-urlencode "name=${tmp_token_name}" "${EFFECTIVE_SONAR_HOST_URL}/api/user_tokens/generate" | sed -n 's/.*"token":"\\([^"]*\\)".*/\\1/p')
 							if [ -n "${tmp_sonar_token}" ]; then
 								EXTRA_AUTH="-Dsonar.token=${tmp_sonar_token}"
+								tmp_token_created="true"
 								echo "WARN: Generated temporary local SonarQube token for this build."
 							fi
 						fi
