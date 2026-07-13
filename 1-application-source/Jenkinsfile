@@ -111,3 +111,4 @@ pipeline {
 			echo 'Pipeline failed. Check Sonar host/token values, scanner output, or Trivy installation.'
 		}
 	}
+}
