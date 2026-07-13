@@ -32,65 +32,59 @@ pipeline {
 
 		stage('SonarQube Scan') {
 			steps {
-				script {
-										sh '''
-												set -e
-												if ! command -v sonar-scanner >/dev/null 2>&1; then
-													SCANNER_DIR="${WORKSPACE}/.sonar-scanner"
-													mkdir -p "${SCANNER_DIR}"
-													if [ ! -x "${SCANNER_DIR}/sonar-scanner/bin/sonar-scanner" ]; then
-														curl -sSLo "${SCANNER_DIR}/sonar-scanner.zip" \
-															https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-6.2.1.4610-linux-x64.zip
-														rm -rf "${SCANNER_DIR}/sonar-scanner"
-														unzip -q -o "${SCANNER_DIR}/sonar-scanner.zip" -d "${SCANNER_DIR}"
-														mv "${SCANNER_DIR}/sonar-scanner-6.2.1.4610-linux-x64" "${SCANNER_DIR}/sonar-scanner"
-													fi
-													export PATH="${SCANNER_DIR}/sonar-scanner/bin:${PATH}"
-												fi
+				sh '''
+					set -e
 
-												EFFECTIVE_SONAR_HOST_URL="${SONAR_HOST_URL}"
-												EFFECTIVE_SONAR_TOKEN="${SONAR_TOKEN}"
-												if [ -n "${JOB_SONAR_HOST_URL:-}" ]; then
-													EFFECTIVE_SONAR_HOST_URL="${JOB_SONAR_HOST_URL}"
-												fi
-												if [ -n "${JOB_SONAR_TOKEN:-}" ]; then
-													EFFECTIVE_SONAR_TOKEN="${JOB_SONAR_TOKEN}"
-												fi
+					if ! command -v sonar-scanner >/dev/null 2>&1; then
+						echo "sonar-scanner not found on Jenkins host. Install it at /usr/local/bin/sonar-scanner."
+						exit 1
+					fi
 
-												if ! curl -sSf --max-time 5 "${EFFECTIVE_SONAR_HOST_URL}/api/system/status" >/dev/null; then
-													echo "Cannot reach SonarQube at ${EFFECTIVE_SONAR_HOST_URL}."
-													echo "Set JOB_SONAR_HOST_URL in Jenkins job environment to your SonarQube URL."
-													exit 1
-												fi
+					EFFECTIVE_SONAR_HOST_URL="${SONAR_HOST_URL}"
+					EFFECTIVE_SONAR_TOKEN="${SONAR_TOKEN}"
 
-												EXTRA_AUTH=""
-												if [ -n "${EFFECTIVE_SONAR_TOKEN}" ]; then
-													EXTRA_AUTH="-Dsonar.token=${EFFECTIVE_SONAR_TOKEN}"
-												fi
+					if [ -n "${JOB_SONAR_HOST_URL:-}" ]; then
+						EFFECTIVE_SONAR_HOST_URL="${JOB_SONAR_HOST_URL}"
+					fi
 
-												sonar-scanner \
-													-Dsonar.host.url=${EFFECTIVE_SONAR_HOST_URL} \
-													${EXTRA_AUTH} \
-													-Dproject.settings=1-application-source/sonar-project.properties \
-													-Dsonar.projectVersion=${BUILD_NUMBER}
-										'''
-				}
+					if [ -n "${JOB_SONAR_TOKEN:-}" ]; then
+						EFFECTIVE_SONAR_TOKEN="${JOB_SONAR_TOKEN}"
+					fi
+
+					if ! curl -sSf --max-time 10 "${EFFECTIVE_SONAR_HOST_URL}/api/system/status" >/dev/null; then
+						echo "Cannot reach SonarQube at ${EFFECTIVE_SONAR_HOST_URL}."
+						exit 1
+					fi
+
+					EXTRA_AUTH=""
+					if [ -n "${EFFECTIVE_SONAR_TOKEN}" ]; then
+						EXTRA_AUTH="-Dsonar.token=${EFFECTIVE_SONAR_TOKEN}"
+					fi
+
+					sonar-scanner \
+						-Dsonar.host.url=${EFFECTIVE_SONAR_HOST_URL} \
+						${EXTRA_AUTH} \
+						-Dproject.settings=1-application-source/sonar-project.properties \
+						-Dsonar.projectVersion=${BUILD_NUMBER} \
+						-Dsonar.qualitygate.wait=true \
+						-Dsonar.qualitygate.timeout=300
+				'''
 			}
 		}
 
 		stage('Quality Gate') {
 			steps {
-								echo 'Quality gate check is handled by SonarQube server and can be enforced externally or via plugin when installed.'
+				echo 'Quality gate was enforced during scanner execution (sonar.qualitygate.wait=true).'
 			}
 		}
 	}
 
 	post {
 		success {
-			echo 'Pipeline completed: webhook trigger, checkout, Sonar scan, and quality gate passed.'
+			echo 'Pipeline completed: webhook/SCM trigger, checkout, Sonar scan, and quality gate passed.'
 		}
 		failure {
-			echo 'Pipeline failed. Check checkout, Sonar scanner output, and quality gate status.'
+			echo 'Pipeline failed. Check Sonar host/token values and scanner output.'
 		}
 	}
 }
