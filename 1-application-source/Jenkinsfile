@@ -85,15 +85,14 @@ pipeline {
 						fi
 					fi
 
-					if [ -z "${EXTRA_AUTH}" ] && [ -n "${EFFECTIVE_SONAR_USER}" ] && [ -n "${EFFECTIVE_SONAR_PASSWORD}" ]; then
-						EXTRA_AUTH="-Dsonar.login=${EFFECTIVE_SONAR_USER} -Dsonar.password=${EFFECTIVE_SONAR_PASSWORD}"
-						echo "Using Sonar username/password authentication from Jenkins environment."
-					fi
-
 					if [ -z "${EXTRA_AUTH}" ] && echo "${EFFECTIVE_SONAR_HOST_URL}" | grep -Eq '^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$'; then
 						if curl -sS --max-time 10 -u admin:admin "${EFFECTIVE_SONAR_HOST_URL}/api/authentication/validate" | grep -q '"valid":true'; then
-							EXTRA_AUTH="-Dsonar.login=admin -Dsonar.password=admin"
-							echo "WARN: Falling back to default admin credentials for local SonarQube."
+							tmp_token_name="jenkins-local-${BUILD_NUMBER}-$(date +%s)"
+							tmp_sonar_token=$(curl -sS --max-time 10 -u admin:admin -X POST --data-urlencode "name=${tmp_token_name}" "${EFFECTIVE_SONAR_HOST_URL}/api/user_tokens/generate" | sed -n 's/.*"token":"\\([^"]*\\)".*/\\1/p')
+							if [ -n "${tmp_sonar_token}" ]; then
+								EXTRA_AUTH="-Dsonar.token=${tmp_sonar_token}"
+								echo "WARN: Generated temporary local SonarQube token for this build."
+							fi
 						fi
 					fi
 
