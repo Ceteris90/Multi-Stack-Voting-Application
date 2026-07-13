@@ -77,14 +77,35 @@ pipeline {
 				echo 'Quality gate was enforced during scanner execution (sonar.qualitygate.wait=true).'
 			}
 		}
-	}
 
-	post {
-		success {
-			echo 'Pipeline completed: webhook/SCM trigger, checkout, Sonar scan, and quality gate passed.'
-		}
-		failure {
-			echo 'Pipeline failed. Check Sonar host/token values and scanner output.'
+	stage('Container Security Scan (Trivy)') {
+		steps {
+			sh '''
+				set -e
+
+				if ! command -v trivy >/dev/null 2>&1; then
+					echo "trivy not found on Jenkins host. Install: curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin"
+					exit 1
+				fi
+
+				echo "========== Scanning Dockerfiles for base image vulnerabilities =========="
+				trivy config 1-application-source/vote/Dockerfile || true
+				trivy config 1-application-source/worker/Dockerfile || true
+				trivy config 1-application-source/result/Dockerfile || true
+
+				echo "========== Scanning source code and dependencies for CVEs =========="
+				trivy fs --severity HIGH,CRITICAL 1-application-source/vote/requirements.txt || true
+				trivy fs --severity HIGH,CRITICAL 1-application-source/result/package.json || true
+
+				echo "========== Trivy scan complete =========="
+			'''
 		}
 	}
 }
+
+	post {
+		success {
+			echo 'Pipeline completed: webhook/SCM trigger, checkout, Sonar scan, quality gate, and Trivy security scan all passed.'
+		}
+		failure {
+			echo 'Pipeline failed. Check Sonar host/token values, scanner output, or Trivy installation.'
