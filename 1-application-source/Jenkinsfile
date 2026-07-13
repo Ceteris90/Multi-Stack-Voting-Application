@@ -78,30 +78,30 @@ pipeline {
 			}
 		}
 
-	stage('Container Security Scan (Trivy)') {
-		steps {
-			sh '''
-				set -e
+		stage('Container Security Scan (Trivy)') {
+			steps {
+				sh '''
+					set -e
 
-				if ! command -v trivy >/dev/null 2>&1; then
-					echo "trivy not found on Jenkins host. Install: curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin"
-					exit 1
-				fi
+					if ! command -v trivy >/dev/null 2>&1; then
+						echo "trivy not found on Jenkins host. Install: curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin"
+						exit 1
+					fi
 
-				echo "========== Scanning Dockerfiles for base image vulnerabilities =========="
-				trivy config 1-application-source/vote/Dockerfile || true
-				trivy config 1-application-source/worker/Dockerfile || true
-				trivy config 1-application-source/result/Dockerfile || true
+					echo "========== Scanning Dockerfiles for base image vulnerabilities =========="
+					trivy config 1-application-source/vote/Dockerfile || true
+					trivy config 1-application-source/worker/Dockerfile || true
+					trivy config 1-application-source/result/Dockerfile || true
 
-				echo "========== Scanning source code and dependencies for CVEs =========="
-				trivy fs --severity HIGH,CRITICAL 1-application-source/vote/requirements.txt || true
-				trivy fs --severity HIGH,CRITICAL 1-application-source/result/package.json || true
+					echo "========== Scanning source code and dependencies for CVEs =========="
+					trivy fs --severity HIGH,CRITICAL 1-application-source/vote/requirements.txt || true
+					trivy fs --severity HIGH,CRITICAL 1-application-source/result/package.json || true
 
-				echo "========== Trivy scan complete =========="
-			'''
+					echo "========== Trivy scan complete =========="
+				'''
+			}
 		}
 	}
-}
 
 	post {
 		success {
