@@ -19,14 +19,25 @@ RUN npm ci && \
 COPY . .
 
 # Set default environment variables for both the application and PostgreSQL connection
+# Note: Secrets like PG_PASSWORD should NOT be hardcoded; use runtime env vars or secrets management
 ENV PORT=80 \
     PG_HOST=db \
     PG_PORT=5432 \
     PG_USER=postgres \
-    PG_PASSWORD=postgres \
     PG_DATABASE=postgres
 
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser
+RUN chown -R appuser:appuser /usr/local/app /node_modules
+
+# Switch to non-root user
+USER appuser
+
 EXPOSE 80
+
+# Add HEALTHCHECK for container monitoring
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:80/ || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "server.js"]

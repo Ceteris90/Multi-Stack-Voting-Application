@@ -18,11 +18,22 @@ WORKDIR /app
 COPY --from=build /app/publish ./
 
 # Set environment variables (can be overridden at runtime)
+# Note: Secrets like DB_PASSWORD should NOT be hardcoded; use runtime env vars or secrets management
 ENV DB_HOST=db
 ENV DB_USERNAME=postgres
-ENV DB_PASSWORD=postgres
 ENV DB_NAME=postgres
 ENV REDIS_HOST=redis
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Add HEALTHCHECK for container monitoring
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD dotnet Worker.dll --health || exit 1
 
 # Define the entry point
 ENTRYPOINT ["dotnet", "Worker.dll"]
