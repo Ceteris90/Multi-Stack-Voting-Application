@@ -58,11 +58,39 @@ kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -
 
 ### Step 2: Access ArgoCD UI
 
-#### Option A: Port Forwarding (Development)
+#### Option A: Port Forwarding with Insecure Mode (Development - Recommended)
+
+This is the easiest for local development. Configure ArgoCD to run in insecure HTTP mode:
+
+```bash
+# Enable insecure server (disable HTTPS and TLS redirects)
+kubectl patch configmap argocd-cmd-params-cm -n argocd -p '{"data":{"server.insecure":"true"}}'
+
+# Restart the server pod
+kubectl rollout restart deployment argocd-server -n argocd
+
+# Wait for pod to restart
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -n argocd --timeout=60s
+
+# Port forward (now HTTP, no SSL issues)
+kubectl port-forward svc/argocd-server -n argocd 8080:80
+# Access at: http://localhost:8080
+```
+
+#### Option A-Alt: Port Forwarding with HTTPS (if insecure mode not available)
+
+If you prefer HTTPS with a self-signed certificate:
+
 ```bash
 kubectl port-forward svc/argocd-server -n argocd 8080:443
 # Access at: https://localhost:8080
+# Accept the self-signed certificate warning in your browser
 ```
+
+**To bypass SSL certificate warnings:**
+- **Chrome**: Click "Advanced" → "Proceed to localhost (unsafe)"
+- **Firefox**: Click "Advanced" → "Accept the Risk and Continue"
+- **Safari**: Click "Show Details" → "Visit this website"
 
 #### Option B: LoadBalancer (Production)
 ```bash
@@ -345,6 +373,30 @@ spec:
 ---
 
 ## Troubleshooting
+
+### SSL Connection Errors (localhost:8080)
+
+**Error**: `SSL received a record that exceeded the maximum permissible length`
+
+**Solution**: Enable insecure (HTTP) mode in ArgoCD:
+
+```bash
+# Set ArgoCD to run in insecure mode (no HTTPS)
+kubectl patch configmap argocd-cmd-params-cm -n argocd -p '{"data":{"server.insecure":"true"}}'
+
+# Restart server
+kubectl rollout restart deployment argocd-server -n argocd
+
+# Wait for restart
+sleep 10
+
+# Now port-forward to HTTP
+kubectl port-forward svc/argocd-server -n argocd 8080:80
+
+# Access at: http://localhost:8080 (NOT https)
+```
+
+Alternatively, if HTTPS is required, browsers require you to accept the self-signed certificate warning before proceeding.
 
 ### Application Not Syncing
 
