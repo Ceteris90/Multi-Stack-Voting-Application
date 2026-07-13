@@ -33,10 +33,23 @@ pipeline {
 		stage('SonarQube Scan') {
 			steps {
 				script {
-					def scannerHome = tool "${SONAR_SCANNER_TOOL}"
 					withSonarQubeEnv("${SONARQUBE_SERVER}") {
 						sh """
-							\"${scannerHome}/bin/sonar-scanner\" \
+														set -e
+														if ! command -v sonar-scanner >/dev/null 2>&1; then
+															SCANNER_DIR=\"${WORKSPACE}/.sonar-scanner\"
+															mkdir -p \"${SCANNER_DIR}\"
+															if [ ! -x \"${SCANNER_DIR}/sonar-scanner/bin/sonar-scanner\" ]; then
+																curl -sSLo \"${SCANNER_DIR}/sonar-scanner.zip\" \
+																	https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-6.2.1.4610-linux-x64.zip
+																rm -rf \"${SCANNER_DIR}/sonar-scanner\"
+																unzip -q -o \"${SCANNER_DIR}/sonar-scanner.zip\" -d \"${SCANNER_DIR}\"
+																mv \"${SCANNER_DIR}/sonar-scanner-6.2.1.4610-linux-x64\" \"${SCANNER_DIR}/sonar-scanner\"
+															fi
+															export PATH=\"${SCANNER_DIR}/sonar-scanner/bin:${PATH}\"
+														fi
+
+														sonar-scanner \
 							  -Dproject.settings=1-application-source/sonar-project.properties \
 							  -Dsonar.projectVersion=${BUILD_NUMBER}
 						"""
