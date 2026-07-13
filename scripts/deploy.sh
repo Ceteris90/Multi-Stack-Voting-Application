@@ -923,6 +923,118 @@ cleanup() {
     log_section "✓ CLEANUP COMPLETE"
 }
 
+trigger_jenkins_build() {
+    log_section "TRIGGERING JENKINS BUILD"
+    
+    local jenkins_url="${JENKINS_URL:-http://localhost:8080}"
+    local jenkins_job="${JENKINS_JOB:-vote_app}"
+    local jenkins_user="${JENKINS_USER:-}"
+    local jenkins_token="${JENKINS_TOKEN:-}"
+    
+    log_info "Jenkins URL: ${jenkins_url}"
+    log_info "Jenkins Job: ${jenkins_job}"
+    
+    # Try to access Jenkins API (may be 403 if anonymous access restricted)
+    local api_response=$(curl -s -w "\n%{http_code}" --max-time 5 "${jenkins_url}/api/json" 2>/dev/null | tail -1)
+    if [[ "${api_response}" == "200" ]] || [[ "${api_response}" == "403" ]]; then
+        log_info "✓ Jenkins is accessible (HTTP ${api_response})"
+    else
+        log_error "Cannot reach Jenkins at ${jenkins_url} (HTTP ${api_response})"
+        return 1
+    fi
+    
+    # If credentials provided, use authenticated request with CRUMB token
+    if [[ -n "${jenkins_user}" && -n "${jenkins_token}" ]]; then
+        log_info "Using authentication for Jenkins"
+        
+        # Get CRUMB token for CSRF protection
+        local crumb=$(curl -s -u "${jenkins_user}:${jenkins_token}" \
+            "${jenkins_url}/crumbIssuer/api/xml?xpath=concat(//crumbRequestField,%22:%22,//crumb)" 2>/dev/null || echo "")
+        
+        if [[ -n "${crumb}" ]]; then
+            log_info "CSRF token obtained"
+            local trigger_url="${jenkins_url}/job/${jenkins_job}/build"
+            local response=$(curl -s -w "\n%{http_code}" -u "${jenkins_user}:${jenkins_token}" \
+                -H "${crumb}" \
+                -X POST "${trigger_url}" 2>&1 | tail -1)
+            
+            if [[ "${response}" == "201" ]] || [[ "${response}" == "200" ]]; then
+                log_success "✓ Build triggered successfully via authenticated API (HTTP ${response})"
+                display_jenkins_info
+                return 0
+            fi
+        else
+            log_warn "Could not obtain CSRF token"
+        fi
+    fi
+    
+    # Fallback: Direct POST to trigger (GitHub webhook style)
+    log_info "Attempting direct build trigger..."
+    local trigger_url="${jenkins_url}/job/${jenkins_job}/build"
+    local response=$(curl -s -w "\n%{http_code}" -X POST "${trigger_url}" 2>&1 | tail -1)
+    
+    if [[ "${response}" == "201" ]] || [[ "${response}" == "200" ]]; then
+        log_success "✓ Build triggered successfully (HTTP ${response})"
+        display_jenkins_info
+        return 0
+    fi
+    
+    # If we get here, direct trigger failed - show guidance
+    log_error "Could not trigger build via API (HTTP ${response})"
+    log_info ""
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "SOLUTION 1: Trigger build via Jenkins Web UI (Easiest)"
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "1. Open Jenkins in your browser:"
+    log_info "   ${jenkins_url}/job/${jenkins_job}/"
+    log_info ""
+    log_info "2. Log in with your Jenkins credentials"
+    log_info ""
+    log_info "3. Click the 'Build Now' button on the left side"
+    log_info ""
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "SOLUTION 2: Trigger via deploy script with authentication"
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "1. Get your Jenkins API token:"
+    log_info "   - Go to: ${jenkins_url}/user/<your-username>/configure"
+    log_info "   - Click 'Add new Token' under API tokens section"
+    log_info "   - Copy the token"
+    log_info ""
+    log_info "2. Set environment variables and trigger:"
+    log_info "   export JENKINS_USER=<your-username>"
+    log_info "   export JENKINS_TOKEN=<your-api-token>"
+    log_info "   bash scripts/deploy.sh jenkins"
+    log_info ""
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "SOLUTION 3: Trigger via GitHub push (Automatic)"
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "Just push to main branch:"
+    log_info "   git commit -am 'Trigger build'"
+    log_info "   git push origin main"
+    log_info ""
+    log_info "GitHub webhook will automatically trigger the Jenkins build"
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info ""
+}
+
+display_jenkins_info() {
+    local jenkins_url="${JENKINS_URL:-http://localhost:8080}"
+    local jenkins_job="${JENKINS_JOB:-vote_app}"
+    
+    log_info ""
+    log_info "Build job initiated. Monitor progress at:"
+    log_info "  ${jenkins_url}/job/${jenkins_job}/"
+    log_info ""
+    log_info "Pipeline stages:"
+    log_info "  1. Checkout SCM"
+    log_info "  2. Validate Sonar Config"
+    log_info "  3. SonarQube Scan"
+    log_info "  4. Quality Gate"
+    log_info "  5. Container Security Scan (Trivy)"
+    log_info "  6. Deploy to ArgoCD"
+    log_info ""
+}
+
 display_deployment_info() {
     local public_vote_url="${PUBLIC_VOTE_URL:-}"
     local public_result_url="${PUBLIC_RESULT_URL:-}"
@@ -1042,6 +1154,7 @@ COMMANDS:
     kubernetes      Deploy to Kubernetes only
     compose         Deploy with Docker Compose only
     ansible         Deploy with Ansible only
+    jenkins         Trigger Jenkins CI/CD pipeline build
 
 OPTIONS:
     --dry-run       Show what would be executed without making changes
@@ -1054,6 +1167,12 @@ OPTIONS:
 EXAMPLES:
     # Deploy everything using default configuration
     $0 deploy
+
+    # Trigger Jenkins build
+    $0 jenkins
+
+    # Trigger Jenkins with authentication
+    JENKINS_USER=admin JENKINS_TOKEN=your-token $0 jenkins
 
     # Preview what would be deployed
     $0 deploy --dry-run
@@ -1151,6 +1270,9 @@ main() {
         ansible)
             validate_config
             deploy_with_ansible
+            ;;
+        jenkins)
+            trigger_jenkins_build
             ;;
         -h|--help)
             usage
