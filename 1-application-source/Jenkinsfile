@@ -1,0 +1,65 @@
+pipeline {
+	agent any
+
+	options {
+		timestamps()
+		disableConcurrentBuilds()
+	}
+
+	// Requires GitHub webhook configured to POST to: http(s)://<jenkins-url>/github-webhook/
+	triggers {
+		githubPush()
+	}
+
+	environment {
+		SONARQUBE_SERVER = 'SonarQube'
+		SONAR_SCANNER_TOOL = 'SonarScanner'
+	}
+
+	stages {
+		stage('Checkout') {
+			steps {
+				checkout scm
+				sh 'git rev-parse --short HEAD'
+			}
+		}
+
+		stage('Validate Sonar Config') {
+			steps {
+				sh 'test -f 1-application-source/sonar-project.properties'
+			}
+		}
+
+		stage('SonarQube Scan') {
+			steps {
+				script {
+					def scannerHome = tool "${SONAR_SCANNER_TOOL}"
+					withSonarQubeEnv("${SONARQUBE_SERVER}") {
+						sh """
+							\"${scannerHome}/bin/sonar-scanner\" \
+							  -Dproject.settings=1-application-source/sonar-project.properties \
+							  -Dsonar.projectVersion=${BUILD_NUMBER}
+						"""
+					}
+				}
+			}
+		}
+
+		stage('Quality Gate') {
+			steps {
+				timeout(time: 10, unit: 'MINUTES') {
+					waitForQualityGate abortPipeline: true
+				}
+			}
+		}
+	}
+
+	post {
+		success {
+			echo 'Pipeline completed: webhook trigger, checkout, Sonar scan, and quality gate passed.'
+		}
+		failure {
+			echo 'Pipeline failed. Check checkout, Sonar scanner output, and quality gate status.'
+		}
+	}
+}
