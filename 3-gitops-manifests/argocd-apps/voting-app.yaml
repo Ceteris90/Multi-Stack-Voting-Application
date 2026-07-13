@@ -6,8 +6,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/your-org/Multi-Stack-Voting-Application.git
-    targetRevision: HEAD
+    repoURL: https://github.com/Ceteris90/Multi-Stack-Voting-Application.git
+    targetRevision: main
     path: 3-gitops-manifests/voting-app-gitops-manifests
   destination:
     server: https://kubernetes.default.svc

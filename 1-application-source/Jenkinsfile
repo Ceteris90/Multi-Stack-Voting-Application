@@ -101,11 +101,39 @@ pipeline {
 				'''
 			}
 		}
+
+		stage('Deploy to ArgoCD') {
+			steps {
+				sh '''
+					set -e
+
+					GIT_COMMIT_SHORT=$(git rev-parse --short HEAD)
+					BUILD_TAG="${GIT_COMMIT_SHORT}-${BUILD_NUMBER}"
+
+					echo "========== ArgoCD GitOps Deployment =========="
+					echo "Git Commit: ${GIT_COMMIT_SHORT}"
+					echo "Build Tag: ${BUILD_TAG}"
+					echo ""
+					echo "Next Steps:"
+					echo "1. Build container images: docker build -t vote:${BUILD_TAG} 1-application-source/vote/"
+					echo "2. Update 3-gitops-manifests/voting-app-gitops-manifests with new image tags"
+					echo "3. Commit & push: git commit -am 'Update image tags to ${BUILD_TAG}'"
+					echo "4. ArgoCD will auto-detect and deploy"
+					echo ""
+					echo "ArgoCD Application: voting-app"
+					echo "ArgoCD Namespace: argocd"
+					echo "Target Namespace: voting-app"
+					echo ""
+					echo "To sync manually: argocd app sync voting-app --insecure"
+					echo "Dashboard: http://<argocd-server>/applications/voting-app"
+				'''
+			}
+		}
 	}
 
 	post {
 		success {
-			echo 'Pipeline completed: webhook/SCM trigger, checkout, Sonar scan, quality gate, and Trivy security scan all passed.'
+			echo 'Pipeline completed: webhook/SCM trigger, checkout, Sonar scan, quality gate, Trivy security scan, and ArgoCD deployment steps all passed.'
 		}
 		failure {
 			echo 'Pipeline failed. Check Sonar host/token values, scanner output, or Trivy installation.'
