@@ -27,7 +27,7 @@ ENV PORT=80 \
     PG_DATABASE=postgres
 
 # Create non-root user for security
-RUN useradd -m -u 1000 appuser
+RUN useradd -m -u 1001 appuser
 RUN chown -R appuser:appuser /usr/local/app /node_modules
 
 # Switch to non-root user

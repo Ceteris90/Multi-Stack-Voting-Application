@@ -25,7 +25,7 @@ ENV DB_NAME=postgres
 ENV REDIS_HOST=redis
 
 # Create non-root user for security
-RUN useradd -m -u 1000 appuser
+RUN useradd -m -u 1001 appuser
 RUN chown -R appuser:appuser /app
 
 # Switch to non-root user
