@@ -4,12 +4,14 @@
 services:
   vote:
     image: pokfinner/vote:latest
+    environment:
+      FLASK_SECRET_KEY: "${FLASK_SECRET_KEY:-local-dev-vote-secret-key-change-me}"
  #  build: ./vote
     depends_on:
       redis:
         condition: service_healthy 
     ports:
-      - "8080:80"
+      - "${VOTE_PORT:-8000}:80"
     networks:
       - back-tier
 
@@ -20,7 +22,7 @@ services:
       db:
         condition: service_healthy 
     ports:
-      - "8081:80"
+      - "${RESULT_PORT:-8081}:80"
     networks:
       - back-tier
 

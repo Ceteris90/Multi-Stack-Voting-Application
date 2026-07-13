@@ -42,6 +42,8 @@ pipeline {
 
 					EFFECTIVE_SONAR_HOST_URL="${SONAR_HOST_URL}"
 					EFFECTIVE_SONAR_TOKEN="${SONAR_TOKEN}"
+					EFFECTIVE_SONAR_USER="${SONAR_USER:-}"
+					EFFECTIVE_SONAR_PASSWORD="${SONAR_PASSWORD:-}"
 
 					if [ -n "${JOB_SONAR_HOST_URL:-}" ]; then
 						EFFECTIVE_SONAR_HOST_URL="${JOB_SONAR_HOST_URL}"
@@ -51,12 +53,50 @@ pipeline {
 						EFFECTIVE_SONAR_TOKEN="${JOB_SONAR_TOKEN}"
 					fi
 
-					if ! curl -sSf --max-time 10 "${EFFECTIVE_SONAR_HOST_URL}/api/system/status" >/dev/null; then
-						echo "Cannot reach SonarQube at ${EFFECTIVE_SONAR_HOST_URL}."
-						exit 1
+					if [ -n "${JOB_SONAR_USER:-}" ]; then
+						EFFECTIVE_SONAR_USER="${JOB_SONAR_USER}"
 					fi
 
+					if [ -n "${JOB_SONAR_PASSWORD:-}" ]; then
+						EFFECTIVE_SONAR_PASSWORD="${JOB_SONAR_PASSWORD}"
+					fi
+
+					echo "Waiting for SonarQube to be reachable at ${EFFECTIVE_SONAR_HOST_URL}..."
+					attempt=1
+					max_attempts=24
+					until curl -sSf --max-time 10 "${EFFECTIVE_SONAR_HOST_URL}/api/system/status" >/dev/null; do
+						if [ "${attempt}" -ge "${max_attempts}" ]; then
+							echo "Cannot reach SonarQube at ${EFFECTIVE_SONAR_HOST_URL} after $((max_attempts * 5)) seconds."
+							exit 1
+						fi
+						echo "SonarQube not ready yet (attempt ${attempt}/${max_attempts}); retrying in 5s..."
+						attempt=$((attempt + 1))
+						sleep 5
+					done
+					echo "SonarQube is reachable."
+
 					EXTRA_AUTH=""
+					if [ -n "${EFFECTIVE_SONAR_TOKEN}" ]; then
+						if curl -sS --max-time 10 -H "Authorization: Bearer ${EFFECTIVE_SONAR_TOKEN}" "${EFFECTIVE_SONAR_HOST_URL}/api/authentication/validate" | grep -q '"valid":true'; then
+							EXTRA_AUTH="-Dsonar.token=${EFFECTIVE_SONAR_TOKEN}"
+						else
+							echo "WARN: Provided Sonar token is invalid. Falling back to username/password auth if available."
+							EFFECTIVE_SONAR_TOKEN=""
+						fi
+					fi
+
+					if [ -z "${EXTRA_AUTH}" ] && [ -n "${EFFECTIVE_SONAR_USER}" ] && [ -n "${EFFECTIVE_SONAR_PASSWORD}" ]; then
+						EXTRA_AUTH="-Dsonar.login=${EFFECTIVE_SONAR_USER} -Dsonar.password=${EFFECTIVE_SONAR_PASSWORD}"
+						echo "Using Sonar username/password authentication from Jenkins environment."
+					fi
+
+					if [ -z "${EXTRA_AUTH}" ] && echo "${EFFECTIVE_SONAR_HOST_URL}" | grep -Eq '^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$'; then
+						if curl -sS --max-time 10 -u admin:admin "${EFFECTIVE_SONAR_HOST_URL}/api/authentication/validate" | grep -q '"valid":true'; then
+							EXTRA_AUTH="-Dsonar.login=admin -Dsonar.password=admin"
+							echo "WARN: Falling back to default admin credentials for local SonarQube."
+						fi
+					fi
+
 					if [ -n "${EFFECTIVE_SONAR_TOKEN}" ]; then
 						EXTRA_AUTH="-Dsonar.token=${EFFECTIVE_SONAR_TOKEN}"
 					fi

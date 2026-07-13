@@ -94,7 +94,7 @@ Supported values:
 ### Local Docker Compose
 When `DEPLOY_METHOD=docker-compose`, service URLs are:
 
-- Vote: `http://localhost:8080`
+- Vote: `http://localhost:8000`
 - Result: `http://localhost:8081`
 
 ### AWS / Kubernetes

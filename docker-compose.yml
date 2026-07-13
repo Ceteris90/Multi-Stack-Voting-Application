@@ -4,11 +4,13 @@
 services:
   vote:
     image: ${VOTE_IMAGE:-dockersamples/examplevotingapp_vote}
+    environment:
+      FLASK_SECRET_KEY: "${FLASK_SECRET_KEY:-local-dev-vote-secret-key-change-me}"
     depends_on:
       redis:
         condition: service_healthy 
     ports:
-      - "8000:80"
+      - "${VOTE_PORT:-8000}:80"
     networks:
       - front-tier
       - back-tier
@@ -25,7 +27,7 @@ services:
       db:
         condition: service_healthy 
     ports:
-      - "8081:80"
+      - "${RESULT_PORT:-8081}:80"
     networks:
       - front-tier
       - back-tier

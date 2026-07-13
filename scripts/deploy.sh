@@ -754,8 +754,37 @@ deploy_to_kubernetes() {
     if [[ -d "${gitops_dir}" ]]; then
         log_info "Applying Kubernetes manifests from: ${gitops_dir}"
         if [[ "${DRY_RUN}" != "true" ]]; then
-            kubectl apply -f "${gitops_dir}" -n "${K8S_NAMESPACE}" || \
-                log_warn "Some manifests may have failed to apply"
+            # Apply core app manifests first (no external CRDs required).
+            local core_manifest_paths=(
+                "${gitops_dir}/2-data-queue"
+                "${gitops_dir}/4-database"
+                "${gitops_dir}/1-voting-frontend"
+                "${gitops_dir}/5-results-dashboard"
+                "${gitops_dir}/3-background-worker"
+            )
+
+            local manifest_path
+            for manifest_path in "${core_manifest_paths[@]}"; do
+                if [[ -d "${manifest_path}" || -f "${manifest_path}" ]]; then
+                    kubectl apply -f "${manifest_path}" || log_warn "Failed applying core manifest path: ${manifest_path}"
+                fi
+            done
+
+            # Optional add-ons may require additional controllers/CRDs. Apply best-effort.
+            local optional_manifests=(
+                "${gitops_dir}/ingress.yaml"
+                "${gitops_dir}/ingress-controller-nginx.yaml"
+                "${gitops_dir}/ingress-controller-alb.yaml"
+                "${gitops_dir}/cert-manager.yaml"
+            )
+
+            local optional_manifest
+            for optional_manifest in "${optional_manifests[@]}"; do
+                if [[ -f "${optional_manifest}" ]]; then
+                    kubectl apply -f "${optional_manifest}" || log_warn "Optional manifest failed (can be ignored for basic app URLs): ${optional_manifest}"
+                fi
+            done
+
             log_info "✓ Kubernetes manifests applied"
         else
             log_info "[DRY RUN] Would apply manifests from: ${gitops_dir}"
@@ -794,6 +823,9 @@ deploy_with_docker_compose() {
             VOTE_IMAGE="${VOTE_IMAGE}" \
             RESULT_IMAGE="${RESULT_IMAGE}" \
             WORKER_IMAGE="${WORKER_IMAGE}" \
+            FLASK_SECRET_KEY="${FLASK_SECRET_KEY:-local-dev-vote-secret-key-change-me}" \
+            VOTE_PORT="${VOTE_PORT:-8000}" \
+            RESULT_PORT="${RESULT_PORT:-8081}" \
             POSTGRES_USER="${POSTGRES_USER:-postgres}" \
             POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}" \
             POSTGRES_DB="${POSTGRES_DB:-votes}" \
@@ -851,10 +883,35 @@ destroy_infrastructure() {
 
 teardown_kubernetes() {
     log_section "TEARING DOWN KUBERNETES DEPLOYMENT"
+
+    local gitops_dir="${PROJECT_ROOT}/3-gitops-manifests/voting-app-gitops-manifests"
+    local argocd_app_manifest="${PROJECT_ROOT}/3-gitops-manifests/argocd-apps/voting-app.yaml"
+
+    log_info "Removing GitOps and EKS add-on manifests (best effort)..."
+    if [[ "${DRY_RUN}" != "true" ]]; then
+        local teardown_manifests=(
+            "${argocd_app_manifest}"
+            "${gitops_dir}/ingress.yaml"
+            "${gitops_dir}/cert-manager.yaml"
+            "${gitops_dir}/ingress-controller-nginx.yaml"
+            "${gitops_dir}/ingress-controller-alb.yaml"
+        )
+
+        local teardown_manifest
+        for teardown_manifest in "${teardown_manifests[@]}"; do
+            if [[ -f "${teardown_manifest}" ]]; then
+                kubectl delete -f "${teardown_manifest}" --ignore-not-found=true || true
+            fi
+        done
+    else
+        log_info "[DRY RUN] Would delete GitOps and EKS add-on manifests"
+    fi
     
     log_info "Deleting Kubernetes namespace: ${K8S_NAMESPACE}"
     if [[ "${DRY_RUN}" != "true" ]]; then
         kubectl delete namespace "${K8S_NAMESPACE}" --ignore-not-found || true
+        kubectl delete namespace ingress-nginx --ignore-not-found || true
+        kubectl delete namespace aws-load-balancer-controller --ignore-not-found || true
         log_info "✓ Namespace deleted"
     else
         log_info "[DRY RUN] Would delete namespace: ${K8S_NAMESPACE}"
@@ -933,6 +990,17 @@ trigger_jenkins_build() {
     
     log_info "Jenkins URL: ${jenkins_url}"
     log_info "Jenkins Job: ${jenkins_job}"
+
+    local trigger_url="${jenkins_url}/job/${jenkins_job}/build"
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    local response_body="${tmp_dir}/body.txt"
+    local response_headers="${tmp_dir}/headers.txt"
+    local cookie_jar="${tmp_dir}/cookies.txt"
+
+    cleanup_tmp() {
+        rm -rf "${tmp_dir}" >/dev/null 2>&1 || true
+    }
     
     # Try to access Jenkins API (may be 403 if anonymous access restricted)
     local api_response=$(curl -s -w "\n%{http_code}" --max-time 5 "${jenkins_url}/api/json" 2>/dev/null | tail -1)
@@ -943,48 +1011,84 @@ trigger_jenkins_build() {
         return 1
     fi
     
-    # If credentials provided, use authenticated request with CRUMB token
+    # If credentials provided, attempt API trigger first, then CSRF crumb flow if needed.
     if [[ -n "${jenkins_user}" && -n "${jenkins_token}" ]]; then
         log_info "Using authentication for Jenkins"
-        
-        # Get CRUMB token for CSRF protection
-        local crumb=$(curl -s -u "${jenkins_user}:${jenkins_token}" \
-            "${jenkins_url}/crumbIssuer/api/xml?xpath=concat(//crumbRequestField,%22:%22,//crumb)" 2>/dev/null || echo "")
-        
-        if [[ -n "${crumb}" ]]; then
-            log_info "CSRF token obtained"
-            local trigger_url="${jenkins_url}/job/${jenkins_job}/build"
-            local response=$(curl -s -w "\n%{http_code}" -u "${jenkins_user}:${jenkins_token}" \
-                -H "${crumb}" \
-                -X POST "${trigger_url}" 2>&1 | tail -1)
-            
-            if [[ "${response}" == "201" ]] || [[ "${response}" == "200" ]]; then
-                log_success "✓ Build triggered successfully via authenticated API (HTTP ${response})"
-                display_jenkins_info
-                return 0
-            fi
-        else
-            log_warn "Could not obtain CSRF token"
+
+        curl -sS -u "${jenkins_user}:${jenkins_token}" \
+            -X POST "${trigger_url}" \
+            -D "${response_headers}" \
+            -o "${response_body}" >/dev/null || true
+
+        local response
+        response=$(awk '/^HTTP\// {code=$2} END {print code}' "${response_headers}")
+
+        if [[ "${response}" == "201" ]] || [[ "${response}" == "200" ]]; then
+            log_info "Build triggered successfully via authenticated API (HTTP ${response})"
+            cleanup_tmp
+            display_jenkins_info
+            return 0
         fi
+
+        if grep -qiE "csrf|crumb|session token is missing|no valid crumb" "${response_body}"; then
+            log_warn "Jenkins requested CSRF crumb; retrying with crumb + session cookie"
+
+            curl -sS -u "${jenkins_user}:${jenkins_token}" \
+                -c "${cookie_jar}" \
+                "${jenkins_url}/crumbIssuer/api/json" \
+                -o "${tmp_dir}/crumb.json" >/dev/null || true
+
+            local crumb_field
+            local crumb_value
+            crumb_field=$(sed -n 's/.*"crumbRequestField"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${tmp_dir}/crumb.json" | head -1)
+            crumb_value=$(sed -n 's/.*"crumb"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${tmp_dir}/crumb.json" | head -1)
+
+            if [[ -n "${crumb_field}" && -n "${crumb_value}" ]]; then
+                curl -sS -u "${jenkins_user}:${jenkins_token}" \
+                    -b "${cookie_jar}" -c "${cookie_jar}" \
+                    -H "${crumb_field}: ${crumb_value}" \
+                    -X POST "${trigger_url}" \
+                    -D "${response_headers}" \
+                    -o "${response_body}" >/dev/null || true
+
+                response=$(awk '/^HTTP\// {code=$2} END {print code}' "${response_headers}")
+                if [[ "${response}" == "201" ]] || [[ "${response}" == "200" ]]; then
+                    log_info "Build triggered successfully with CSRF crumb (HTTP ${response})"
+                    cleanup_tmp
+                    display_jenkins_info
+                    return 0
+                fi
+            else
+                log_warn "Could not obtain CSRF crumb from Jenkins"
+            fi
+        fi
+
+        log_warn "Authenticated trigger failed (HTTP ${response:-unknown})"
     fi
-    
-    # Fallback: Direct POST to trigger (GitHub webhook style)
+
+    # Fallback: Direct POST to trigger (works only for anonymous-triggerable jobs).
     log_info "Attempting direct build trigger..."
-    local trigger_url="${jenkins_url}/job/${jenkins_job}/build"
-    local response=$(curl -s -w "\n%{http_code}" -X POST "${trigger_url}" 2>&1 | tail -1)
-    
+    curl -sS -X POST "${trigger_url}" -D "${response_headers}" -o "${response_body}" >/dev/null || true
+    local response
+    response=$(awk '/^HTTP\// {code=$2} END {print code}' "${response_headers}")
+
     if [[ "${response}" == "201" ]] || [[ "${response}" == "200" ]]; then
-        log_success "✓ Build triggered successfully (HTTP ${response})"
+        log_info "Build triggered successfully (HTTP ${response})"
+        cleanup_tmp
         display_jenkins_info
         return 0
     fi
-    
+
+    if grep -qiE "csrf|crumb|session token is missing|no valid crumb" "${response_body}"; then
+        log_warn "Jenkins rejected the request due to missing CSRF token."
+    fi
+
     # If we get here, direct trigger failed - show guidance
-    log_error "Could not trigger build via API (HTTP ${response})"
+    log_warn "Could not trigger build via API (HTTP ${response:-unknown})"
     log_info ""
-    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "------------------------------------------------------------------"
     log_info "SOLUTION 1: Trigger build via Jenkins Web UI (Easiest)"
-    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "------------------------------------------------------------------"
     log_info "1. Open Jenkins in your browser:"
     log_info "   ${jenkins_url}/job/${jenkins_job}/"
     log_info ""
@@ -1005,16 +1109,19 @@ trigger_jenkins_build() {
     log_info "   export JENKINS_TOKEN=<your-api-token>"
     log_info "   bash scripts/deploy.sh jenkins"
     log_info ""
-    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "------------------------------------------------------------------"
     log_info "SOLUTION 3: Trigger via GitHub push (Automatic)"
-    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "------------------------------------------------------------------"
     log_info "Just push to main branch:"
     log_info "   git commit -am 'Trigger build'"
     log_info "   git push origin main"
     log_info ""
     log_info "GitHub webhook will automatically trigger the Jenkins build"
-    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "------------------------------------------------------------------"
     log_info ""
+
+    cleanup_tmp
+    return 1
 }
 
 display_jenkins_info() {
@@ -1038,23 +1145,37 @@ display_jenkins_info() {
 display_deployment_info() {
     local public_vote_url="${PUBLIC_VOTE_URL:-}"
     local public_result_url="${PUBLIC_RESULT_URL:-}"
+    local eks_vote_url=""
+    local eks_result_url=""
+    local vote_hostname=""
+    local result_hostname=""
+    local can_query_k8s="false"
 
     if [[ "${DEPLOY_METHOD}" == "docker-compose" ]]; then
-        public_vote_url="http://localhost:8080"
-        public_result_url="http://localhost:8081"
-    elif [[ -z "${public_vote_url}" || -z "${public_result_url}" ]] && command -v kubectl >/dev/null 2>&1 && [[ "${DEPLOY_METHOD}" == "kubernetes" || "${DEPLOY_METHOD}" == "argocd" ]]; then
-        local vote_hostname=""
-        local result_hostname=""
+        public_vote_url="http://localhost:${VOTE_PORT:-8000}"
+        public_result_url="http://localhost:${RESULT_PORT:-8081}"
+    fi
 
+    if command -v kubectl >/dev/null 2>&1 && kubectl cluster-info >/dev/null 2>&1; then
+        can_query_k8s="true"
         vote_hostname=$(kubectl -n "${K8S_NAMESPACE}" get svc vote -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
         result_hostname=$(kubectl -n "${K8S_NAMESPACE}" get svc result -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
 
         if [[ -n "${vote_hostname}" ]]; then
-            public_vote_url="http://${vote_hostname}"
+            eks_vote_url="http://${vote_hostname}"
         fi
 
         if [[ -n "${result_hostname}" ]]; then
-            public_result_url="http://${result_hostname}"
+            eks_result_url="http://${result_hostname}"
+        fi
+    fi
+
+    if [[ ("${DEPLOY_METHOD}" == "kubernetes" || "${DEPLOY_METHOD}" == "argocd") && ( -z "${public_vote_url}" || -z "${public_result_url}" ) ]]; then
+        if [[ -n "${eks_vote_url}" ]]; then
+            public_vote_url="${eks_vote_url}"
+        fi
+        if [[ -n "${eks_result_url}" ]]; then
+            public_result_url="${eks_result_url}"
         fi
     fi
 
@@ -1091,9 +1212,30 @@ display_deployment_info() {
     fi
 
     echo ""
-    echo "Public AWS URLs:"
+    if [[ "${DEPLOY_METHOD}" == "docker-compose" ]]; then
+        echo "Local URLs:"
+    else
+        echo "Public URLs:"
+    fi
     echo "  Vote app:   ${public_vote_url}"
     echo "  Result app: ${public_result_url}"
+
+    if [[ "${DEPLOY_METHOD}" == "docker-compose" ]]; then
+        echo ""
+        echo "EKS URLs (${K8S_NAMESPACE} namespace):"
+        if [[ -n "${eks_vote_url}" || -n "${eks_result_url}" ]]; then
+            echo "  Vote app:   ${eks_vote_url:-Pending LoadBalancer hostname}"
+            echo "  Result app: ${eks_result_url:-Pending LoadBalancer hostname}"
+        elif [[ "${can_query_k8s}" == "true" ]]; then
+            echo "  Vote app:   Pending LoadBalancer hostname"
+            echo "  Result app: Pending LoadBalancer hostname"
+            echo "  Note: Services may not be type LoadBalancer yet."
+        else
+            echo "  Unable to query cluster (kubectl context not configured or cluster unreachable)."
+            echo "  Run: aws eks update-kubeconfig --name ${K8S_CLUSTER_NAME} --region ${AWS_REGION}"
+        fi
+    fi
+
     if [[ "${DEPLOY_METHOD}" == "kubernetes" || "${DEPLOY_METHOD}" == "argocd" ]]; then
         if [[ "${public_vote_url}" == "Pending LoadBalancer hostname" || "${public_result_url}" == "Pending LoadBalancer hostname" ]]; then
             echo "  Note: If this remains pending, verify the 'voting-app' namespace and LoadBalancer services exist."
