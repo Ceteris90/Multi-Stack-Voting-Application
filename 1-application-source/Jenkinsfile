@@ -12,8 +12,8 @@ pipeline {
 	}
 
 	environment {
-		SONAR_HOST_URL = "${env.SONAR_HOST_URL ?: 'http://localhost:9000'}"
-		SONAR_TOKEN = "${env.SONAR_TOKEN ?: ''}"
+		SONAR_HOST_URL = 'http://localhost:9000'
+		SONAR_TOKEN = ''
 	}
 
 	stages {
@@ -33,37 +33,47 @@ pipeline {
 		stage('SonarQube Scan') {
 			steps {
 				script {
-										sh """
+										sh '''
 												set -e
 												if ! command -v sonar-scanner >/dev/null 2>&1; then
-													SCANNER_DIR=\"${WORKSPACE}/.sonar-scanner\"
-													mkdir -p \"${SCANNER_DIR}\"
-													if [ ! -x \"${SCANNER_DIR}/sonar-scanner/bin/sonar-scanner\" ]; then
-														curl -sSLo \"${SCANNER_DIR}/sonar-scanner.zip\" \
+													SCANNER_DIR="${WORKSPACE}/.sonar-scanner"
+													mkdir -p "${SCANNER_DIR}"
+													if [ ! -x "${SCANNER_DIR}/sonar-scanner/bin/sonar-scanner" ]; then
+														curl -sSLo "${SCANNER_DIR}/sonar-scanner.zip" \
 															https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-6.2.1.4610-linux-x64.zip
-														rm -rf \"${SCANNER_DIR}/sonar-scanner\"
-														unzip -q -o \"${SCANNER_DIR}/sonar-scanner.zip\" -d \"${SCANNER_DIR}\"
-														mv \"${SCANNER_DIR}/sonar-scanner-6.2.1.4610-linux-x64\" \"${SCANNER_DIR}/sonar-scanner\"
+														rm -rf "${SCANNER_DIR}/sonar-scanner"
+														unzip -q -o "${SCANNER_DIR}/sonar-scanner.zip" -d "${SCANNER_DIR}"
+														mv "${SCANNER_DIR}/sonar-scanner-6.2.1.4610-linux-x64" "${SCANNER_DIR}/sonar-scanner"
 													fi
-													export PATH=\"${SCANNER_DIR}/sonar-scanner/bin:${PATH}\"
+													export PATH="${SCANNER_DIR}/sonar-scanner/bin:${PATH}"
 												fi
 
-												if ! curl -sSf --max-time 5 \"${SONAR_HOST_URL}/api/system/status\" >/dev/null; then
-													echo \"Cannot reach SonarQube at ${SONAR_HOST_URL}. Set SONAR_HOST_URL for this Jenkins instance.\"
+												EFFECTIVE_SONAR_HOST_URL="${SONAR_HOST_URL}"
+												EFFECTIVE_SONAR_TOKEN="${SONAR_TOKEN}"
+												if [ -n "${JOB_SONAR_HOST_URL:-}" ]; then
+													EFFECTIVE_SONAR_HOST_URL="${JOB_SONAR_HOST_URL}"
+												fi
+												if [ -n "${JOB_SONAR_TOKEN:-}" ]; then
+													EFFECTIVE_SONAR_TOKEN="${JOB_SONAR_TOKEN}"
+												fi
+
+												if ! curl -sSf --max-time 5 "${EFFECTIVE_SONAR_HOST_URL}/api/system/status" >/dev/null; then
+													echo "Cannot reach SonarQube at ${EFFECTIVE_SONAR_HOST_URL}."
+													echo "Set JOB_SONAR_HOST_URL in Jenkins job environment to your SonarQube URL."
 													exit 1
 												fi
 
 												EXTRA_AUTH=""
-												if [ -n \"${SONAR_TOKEN}\" ]; then
-													EXTRA_AUTH=\"-Dsonar.token=${SONAR_TOKEN}\"
+												if [ -n "${EFFECTIVE_SONAR_TOKEN}" ]; then
+													EXTRA_AUTH="-Dsonar.token=${EFFECTIVE_SONAR_TOKEN}"
 												fi
 
 												sonar-scanner \
-													-Dsonar.host.url=${SONAR_HOST_URL} \
+													-Dsonar.host.url=${EFFECTIVE_SONAR_HOST_URL} \
 													${EXTRA_AUTH} \
 													-Dproject.settings=1-application-source/sonar-project.properties \
 													-Dsonar.projectVersion=${BUILD_NUMBER}
-										"""
+										'''
 				}
 			}
 		}
