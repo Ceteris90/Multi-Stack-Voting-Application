@@ -141,6 +141,112 @@ log_section() {
     echo -e "${BLUE}=================================================================================${NC}"
 }
 
+check_http_endpoint() {
+    local url="$1"
+
+    if [[ -z "${url}" || "${url}" == "Pending LoadBalancer hostname" ]]; then
+        echo "UNAVAILABLE"
+        return 0
+    fi
+
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "UNKNOWN"
+        return 0
+    fi
+
+    local status_code=""
+    status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${url}" 2>/dev/null || true)
+
+    if [[ "${status_code}" == "200" ]]; then
+        echo "OK"
+    elif [[ -n "${status_code}" && "${status_code}" != "000" ]]; then
+        echo "HTTP ${status_code}"
+    else
+        echo "DOWN"
+    fi
+}
+
+resolve_public_vote_url() {
+    local public_vote_url="${PUBLIC_VOTE_URL:-}"
+    local namespace="${K8S_NAMESPACE:-voting-app}"
+
+    if [[ "${DEPLOY_METHOD:-}" == "docker-compose" ]]; then
+        echo ""
+        return 0
+    fi
+
+    if [[ -n "${public_vote_url}" && "${public_vote_url}" != "Pending LoadBalancer hostname" ]]; then
+        echo "${public_vote_url}"
+        return 0
+    fi
+
+    if command -v kubectl >/dev/null 2>&1 && kubectl cluster-info >/dev/null 2>&1; then
+        public_vote_url=$(kubectl -n "${namespace}" get svc vote -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+        if [[ -n "${public_vote_url}" ]]; then
+            echo "http://${public_vote_url}"
+            return 0
+        fi
+    fi
+
+    echo ""
+}
+
+run_vote_simulation() {
+    local simulate_after_deploy="${RUN_VOTE_SIMULATION_AFTER_DEPLOY:-true}"
+    local simulate_votes_count="${SIMULATE_VOTES_COUNT:-1000}"
+    local simulate_vote_workers="${SIMULATE_VOTE_WORKERS:-10}"
+    local simulate_local_ratio="${SIMULATE_VOTES_LOCAL_RATIO:-0.5}"
+    local simulate_script="${PROJECT_ROOT}/scripts/simulate_votes.py"
+    local public_vote_url=""
+    local -a simulate_cmd
+
+    if [[ "${simulate_after_deploy}" != "true" ]]; then
+        log_info "Skipping vote simulation because RUN_VOTE_SIMULATION_AFTER_DEPLOY=${simulate_after_deploy}"
+        return 0
+    fi
+
+    if [[ ! -f "${simulate_script}" ]]; then
+        log_warn "Vote simulator not found: ${simulate_script}"
+        return 0
+    fi
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        log_warn "python3 not available; skipping vote simulation"
+        return 0
+    fi
+
+    public_vote_url=$(resolve_public_vote_url)
+
+    simulate_cmd=(
+        python3 "${simulate_script}"
+        --votes "${simulate_votes_count}"
+        --workers "${simulate_vote_workers}"
+        --local-ratio "${simulate_local_ratio}"
+    )
+
+    if [[ -n "${public_vote_url}" ]]; then
+        simulate_cmd+=(--aws-vote-url "${public_vote_url}")
+    else
+        simulate_cmd=(
+            python3 "${simulate_script}"
+            --votes "${simulate_votes_count}"
+            --workers "${simulate_vote_workers}"
+            --local-ratio 1.0
+        )
+        log_warn "AWS vote URL is not ready; running local-only simulation"
+    fi
+
+    log_section "RUNNING VOTE SIMULATION"
+    log_info "Command: ${simulate_cmd[*]}"
+
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        log_info "[DRY RUN] Would run vote simulation"
+        return 0
+    fi
+
+    "${simulate_cmd[@]}" || log_warn "Vote simulation finished with a non-zero exit status"
+}
+
 # ============================================================================
 # VALIDATION FUNCTIONS
 # ============================================================================
@@ -710,6 +816,18 @@ provision_infrastructure() {
 # ============================================================================
 # KUBERNETES DEPLOYMENT FUNCTIONS
 # ============================================================================
+# Auto-configure kubectl context for EKS when not already connected.
+ensure_kubectl_context() {
+    if kubectl cluster-info &>/dev/null; then
+        return 0
+    fi
+    if [[ -n "${K8S_CLUSTER_NAME:-}" ]] && command -v aws >/dev/null 2>&1; then
+        log_info "Configuring kubectl context for EKS cluster: ${K8S_CLUSTER_NAME}..."
+        aws eks update-kubeconfig --name "${K8S_CLUSTER_NAME}" --region "${AWS_REGION:-us-east-1}" 2>/dev/null || true
+    fi
+}
+
+# ============================================================================
 deploy_to_kubernetes() {
     if [[ "${SKIP_K8S_DEPLOY}" == "true" ]]; then
         log_warn "Skipping Kubernetes deployment"
@@ -718,9 +836,10 @@ deploy_to_kubernetes() {
     
     log_section "DEPLOYING TO KUBERNETES"
     
-    # Check kubectl connectivity
+    # Check kubectl connectivity, auto-configure EKS context if needed
     log_info "Checking Kubernetes cluster connectivity..."
     if [[ "${DRY_RUN}" != "true" ]]; then
+        ensure_kubectl_context
         if ! kubectl cluster-info &> /dev/null; then
             log_warn "Unable to connect to Kubernetes cluster. Skipping K8s deployment."
             log_warn "To deploy to K8s, configure kubectl context for: ${K8S_CLUSTER_NAME}"
@@ -959,6 +1078,7 @@ deploy() {
     
     log_section "✓ DEPLOYMENT COMPLETE"
     display_deployment_info
+    run_vote_simulation
 }
 
 cleanup() {
@@ -1150,10 +1270,21 @@ display_deployment_info() {
     local vote_hostname=""
     local result_hostname=""
     local can_query_k8s="false"
+    local local_vote_url="http://localhost:${VOTE_PORT:-8000}"
+    local local_result_url="http://localhost:${RESULT_PORT:-8081}"
+    local local_vote_status=""
+    local aws_vote_status=""
+    local local_result_status=""
+    local aws_result_status=""
 
     if [[ "${DEPLOY_METHOD}" == "docker-compose" ]]; then
         public_vote_url="http://localhost:${VOTE_PORT:-8000}"
         public_result_url="http://localhost:${RESULT_PORT:-8081}"
+    fi
+
+    # Auto-configure EKS context so URL lookup always works without manual steps
+    if [[ "${DEPLOY_METHOD}" == "kubernetes" ]] || [[ "${DEPLOY_METHOD}" == "argocd" ]]; then
+        ensure_kubectl_context
     fi
 
     if command -v kubectl >/dev/null 2>&1 && kubectl cluster-info >/dev/null 2>&1; then
@@ -1240,6 +1371,49 @@ display_deployment_info() {
         if [[ "${public_vote_url}" == "Pending LoadBalancer hostname" || "${public_result_url}" == "Pending LoadBalancer hostname" ]]; then
             echo "  Note: If this remains pending, verify the 'voting-app' namespace and LoadBalancer services exist."
         fi
+    fi
+
+    local_vote_status=$(check_http_endpoint "${local_vote_url}")
+    local_result_status=$(check_http_endpoint "${local_result_url}")
+    aws_vote_status=$(check_http_endpoint "${public_vote_url}")
+    aws_result_status=$(check_http_endpoint "${public_result_url}")
+
+    echo ""
+    echo "Endpoint checks:"
+    case "${local_vote_status}" in
+        OK) echo "  ✅ Local Vote           (${local_vote_url})" ;;
+        HTTP*) echo "  ❌ Local Vote           ${local_vote_status}" ;;
+        DOWN) echo "  ❌ Local Vote           Unreachable (${local_vote_url})" ;;
+        *) echo "  ⚠️  Local Vote           ${local_vote_status}" ;;
+    esac
+    case "${aws_vote_status}" in
+        OK) echo "  ✅ AWS Vote             (${public_vote_url})" ;;
+        HTTP*) echo "  ❌ AWS Vote             ${aws_vote_status}" ;;
+        DOWN) echo "  ❌ AWS Vote             Unreachable (${public_vote_url})" ;;
+        UNAVAILABLE) echo "  ⚠️  AWS Vote             URL not configured or still pending" ;;
+        *) echo "  ⚠️  AWS Vote             ${aws_vote_status}" ;;
+    esac
+    case "${local_result_status}" in
+        OK) echo "  ✅ Local Result         (${local_result_url})" ;;
+        HTTP*) echo "  ❌ Local Result         ${local_result_status}" ;;
+        DOWN) echo "  ❌ Local Result         Unreachable (${local_result_url})" ;;
+        *) echo "  ⚠️  Local Result         ${local_result_status}" ;;
+    esac
+    case "${aws_result_status}" in
+        OK) echo "  ✅ AWS Result           (${public_result_url})" ;;
+        HTTP*) echo "  ❌ AWS Result           ${aws_result_status}" ;;
+        DOWN) echo "  ❌ AWS Result           Unreachable (${public_result_url})" ;;
+        UNAVAILABLE) echo "  ⚠️  AWS Result           URL not configured or still pending" ;;
+        *) echo "  ⚠️  AWS Result           ${aws_result_status}" ;;
+    esac
+
+    echo ""
+    echo "Load test command:"
+    if [[ "${public_vote_url}" != "Pending LoadBalancer hostname" ]]; then
+        echo "  python3 ${PROJECT_ROOT}/scripts/simulate_votes.py --aws-vote-url ${public_vote_url}"
+    else
+        echo "  python3 ${PROJECT_ROOT}/scripts/simulate_votes.py --local-ratio 1.0"
+        echo "  Set PUBLIC_VOTE_URL or wait for the LoadBalancer hostname before sending AWS traffic."
     fi
 
     if [[ "${DRY_RUN}" != "true" ]] && command -v aws >/dev/null 2>&1 && [[ "${SKIP_TERRAFORM:-false}" != "true" ]]; then

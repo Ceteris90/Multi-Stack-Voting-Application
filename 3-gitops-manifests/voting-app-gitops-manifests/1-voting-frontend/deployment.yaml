@@ -32,6 +32,8 @@ spec:
               value: "6379"
             - name: PORT
               value: "80"
+            - name: FLASK_SECRET_KEY
+              value: "voting-app-prod-secret-key-eks-2026"
           readinessProbe:
             httpGet:
               path: /

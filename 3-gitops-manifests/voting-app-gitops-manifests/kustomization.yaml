@@ -9,9 +9,6 @@ resources:
   - 4-database
   - 5-results-dashboard
   - ingress.yaml
-  - cert-manager.yaml
-  - ingress-controller-nginx.yaml
-  - ingress-controller-alb.yaml
 images:
   - name: voting-app-vote
     newName: your-registry.example.com/voting-app-vote
