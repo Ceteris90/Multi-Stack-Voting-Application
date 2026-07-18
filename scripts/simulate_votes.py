@@ -217,7 +217,7 @@ def print_progress(processed, total):
     sys.stdout.flush()
 
 
-def simulate_votes(total_votes=600, num_workers=10, local_ratio=0.5):
+def simulate_votes(total_votes=600, num_workers=10, local_ratio=0.2):
     """Simulate votes split between local and AWS endpoints."""
     aws_vote_url = resolve_aws_vote_url()
     aws_votes = total_votes - int(total_votes * local_ratio)

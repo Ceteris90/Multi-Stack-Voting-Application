@@ -49,9 +49,11 @@ app.controller('statsCtrl', function($scope) {
 });
 
 function getPercentages(a, b) {
-  if (a + b > 0) {
-    const percA = Math.round(a / (a + b) * 100);
-    return { a: percA, b: 100 - percA };
+  const total = a + b;
+  if (total > 0) {
+    const percA = (a / total) * 100;
+    const percB = (b / total) * 100;
+    return { a: percA, b: percB };
   }
   return { a: 50, b: 50 };
 }

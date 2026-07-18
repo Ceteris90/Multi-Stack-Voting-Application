@@ -18,7 +18,7 @@ spec:
       containers:
         - name: vote
           image: docker.io/ceteris90/voting-app-vote:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
           env:
@@ -34,6 +34,8 @@ spec:
               value: "80"
             - name: FLASK_SECRET_KEY
               value: "voting-app-prod-secret-key-eks-2026"
+            - name: WTF_CSRF_TIME_LIMIT
+              value: "86400"
           readinessProbe:
             httpGet:
               path: /

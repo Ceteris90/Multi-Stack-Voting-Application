@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, make_response, g
-from flask_wtf.csrf import CSRFProtect
+from flask_wtf.csrf import CSRFProtect, CSRFError
 from redis import Redis
 import os
 import socket
@@ -16,6 +16,7 @@ hostname = socket.gethostname()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', secrets.token_hex(32))
+app.config['WTF_CSRF_TIME_LIMIT'] = int(os.getenv('WTF_CSRF_TIME_LIMIT', '86400'))
 csrf = CSRFProtect(app)
 
 gunicorn_error_logger = logging.getLogger('gunicorn.error')
@@ -53,6 +54,21 @@ def hello():
     cookie_is_secure = request.is_secure or request.headers.get('X-Forwarded-Proto', '').lower() == 'https'
     resp.set_cookie('voter_id', voter_id, secure=cookie_is_secure, httponly=True, samesite='Lax')
     return resp
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(error):
+    # Return a fresh form instead of Flask-WTF's default Bad Request page.
+    app.logger.warning('CSRF validation failed: %s', error.description)
+    resp = make_response(render_template(
+        'index.html',
+        option_a=option_a,
+        option_b=option_b,
+        hostname=hostname,
+        vote=None,
+        csrf_error='Your voting session expired. Please try again.',
+    ))
+    return resp, 200
 
 
 if __name__ == "__main__":
