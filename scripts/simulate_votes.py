@@ -217,7 +217,7 @@ def print_progress(processed, total):
     sys.stdout.flush()
 
 
-def simulate_votes(total_votes=10000, num_workers=10, local_ratio=0.5):
+def simulate_votes(total_votes=600, num_workers=10, local_ratio=0.5):
     """Simulate votes split between local and AWS endpoints."""
     aws_vote_url = resolve_aws_vote_url()
     aws_votes = total_votes - int(total_votes * local_ratio)
@@ -303,18 +303,21 @@ def print_results():
         print(f"  2. Check AWS results:     {aws_vote_url.replace('vote', 'result')}")
 
 
-def test_endpoints():
-    """Test if endpoints are reachable."""
+def test_endpoints(local_ratio):
+    """Test only the endpoints that will actually receive traffic."""
     print("🔍 Testing endpoints...\n")
     aws_vote_url = resolve_aws_vote_url()
-    
-    endpoints = {
-        'Local Vote': LOCAL_VOTE_URL,
-    }
+
+    endpoints = {}
+
+    if local_ratio > 0:
+        endpoints['Local Vote'] = LOCAL_VOTE_URL
+    else:
+        print("  ⚠️  Local Vote          Skipped (local-ratio is 0.0)")
 
     if aws_vote_url:
         endpoints['AWS Vote'] = aws_vote_url
-    else:
+    elif local_ratio < 1:
         print("  ⚠️  AWS Vote            URL not configured; skipping AWS check")
     
     all_ok = True
@@ -404,7 +407,7 @@ Examples:
         os.environ['AWS_VOTE_URL'] = aws_vote_url
     
     # Test endpoints
-    if not test_endpoints():
+    if not test_endpoints(args.local_ratio):
         print("⚠️  Warning: Some endpoints are not reachable.")
         if not args.test_only:
             response = input("Continue anyway? (y/n): ")

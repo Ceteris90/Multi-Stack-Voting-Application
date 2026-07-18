@@ -195,10 +195,19 @@ run_vote_simulation() {
     local simulate_after_deploy="${RUN_VOTE_SIMULATION_AFTER_DEPLOY:-true}"
     local simulate_votes_count="${SIMULATE_VOTES_COUNT:-1000}"
     local simulate_vote_workers="${SIMULATE_VOTE_WORKERS:-10}"
-    local simulate_local_ratio="${SIMULATE_VOTES_LOCAL_RATIO:-0.5}"
+    local simulate_local_ratio=""
     local simulate_script="${PROJECT_ROOT}/scripts/simulate_votes.py"
     local public_vote_url=""
     local -a simulate_cmd
+
+    if [[ -n "${SIMULATE_VOTES_LOCAL_RATIO+x}" ]]; then
+        simulate_local_ratio="${SIMULATE_VOTES_LOCAL_RATIO}"
+    elif [[ "${DEPLOY_METHOD:-}" == "kubernetes" || "${DEPLOY_METHOD:-}" == "argocd" ]]; then
+        # Default to AWS-only simulation for cluster deploys to avoid localhost failures.
+        simulate_local_ratio="0.0"
+    else
+        simulate_local_ratio="0.5"
+    fi
 
     if [[ "${simulate_after_deploy}" != "true" ]]; then
         log_info "Skipping vote simulation because RUN_VOTE_SIMULATION_AFTER_DEPLOY=${simulate_after_deploy}"
@@ -933,7 +942,11 @@ deploy_to_kubernetes() {
             local manifest_path
             for manifest_path in "${core_manifest_paths[@]}"; do
                 if [[ -d "${manifest_path}" || -f "${manifest_path}" ]]; then
-                    kubectl apply -f "${manifest_path}" || log_warn "Failed applying core manifest path: ${manifest_path}"
+                    if [[ -d "${manifest_path}" && ( -f "${manifest_path}/kustomization.yaml" || -f "${manifest_path}/kustomization.yml" || -f "${manifest_path}/Kustomization" ) ]]; then
+                        kubectl apply -k "${manifest_path}" || log_warn "Failed applying core kustomize path: ${manifest_path}"
+                    else
+                        kubectl apply -f "${manifest_path}" || log_warn "Failed applying core manifest path: ${manifest_path}"
+                    fi
                 fi
             done
 
@@ -948,6 +961,12 @@ deploy_to_kubernetes() {
             local optional_manifest
             for optional_manifest in "${optional_manifests[@]}"; do
                 if [[ -f "${optional_manifest}" ]]; then
+                    if [[ "$(basename "${optional_manifest}")" == "cert-manager.yaml" ]]; then
+                        if ! kubectl get crd clusterissuers.cert-manager.io >/dev/null 2>&1; then
+                            log_warn "Skipping cert-manager manifest (ClusterIssuer CRD not installed yet): ${optional_manifest}"
+                            continue
+                        fi
+                    fi
                     kubectl apply -f "${optional_manifest}" || log_warn "Optional manifest failed (can be ignored for basic app URLs): ${optional_manifest}"
                 fi
             done
@@ -963,8 +982,17 @@ deploy_to_kubernetes() {
     # Wait for deployments
     log_info "Waiting for deployments to be ready..."
     if [[ "${DRY_RUN}" != "true" ]]; then
-        kubectl wait --for=condition=available --timeout=300s \
-            deployment --all -n "${K8S_NAMESPACE}" || true
+        local deployment_name
+        local core_deployments=(db redis result vote worker)
+        for deployment_name in "${core_deployments[@]}"; do
+            if kubectl -n "${K8S_NAMESPACE}" get deployment "${deployment_name}" >/dev/null 2>&1; then
+                if kubectl -n "${K8S_NAMESPACE}" rollout status "deployment/${deployment_name}" --timeout=300s >/dev/null 2>&1; then
+                    log_info "Deployment ready: ${deployment_name}"
+                else
+                    log_warn "Deployment did not become ready in time: ${deployment_name}"
+                fi
+            fi
+        done
     fi
 }
 
@@ -1421,8 +1449,13 @@ display_deployment_info() {
         fi
     fi
 
-    local_vote_status=$(check_http_endpoint "${local_vote_url}")
-    local_result_status=$(check_http_endpoint "${local_result_url}")
+    if [[ "${DEPLOY_METHOD}" == "docker-compose" ]]; then
+        local_vote_status=$(check_http_endpoint "${local_vote_url}")
+        local_result_status=$(check_http_endpoint "${local_result_url}")
+    else
+        local_vote_status="SKIPPED"
+        local_result_status="SKIPPED"
+    fi
     aws_vote_status=$(check_http_endpoint "${public_vote_url}")
     aws_result_status=$(check_http_endpoint "${public_result_url}")
 
@@ -1432,6 +1465,7 @@ display_deployment_info() {
         OK) echo "  ✅ Local Vote           (${local_vote_url})" ;;
         HTTP*) echo "  ❌ Local Vote           ${local_vote_status}" ;;
         DOWN) echo "  ❌ Local Vote           Unreachable (${local_vote_url})" ;;
+        SKIPPED) echo "  ⚠️  Local Vote           Skipped (deploy method: ${DEPLOY_METHOD})" ;;
         *) echo "  ⚠️  Local Vote           ${local_vote_status}" ;;
     esac
     case "${aws_vote_status}" in
@@ -1445,6 +1479,7 @@ display_deployment_info() {
         OK) echo "  ✅ Local Result         (${local_result_url})" ;;
         HTTP*) echo "  ❌ Local Result         ${local_result_status}" ;;
         DOWN) echo "  ❌ Local Result         Unreachable (${local_result_url})" ;;
+        SKIPPED) echo "  ⚠️  Local Result         Skipped (deploy method: ${DEPLOY_METHOD})" ;;
         *) echo "  ⚠️  Local Result         ${local_result_status}" ;;
     esac
     case "${aws_result_status}" in

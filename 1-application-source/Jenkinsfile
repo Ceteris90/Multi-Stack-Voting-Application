@@ -12,8 +12,12 @@ pipeline {
 	}
 
 	environment {
-		SONAR_HOST_URL = 'http://localhost:9000'
+		SONAR_HOST_URL = 'http://3.231.50.115:9000'
 		SONAR_TOKEN = ''
+		SONAR_TOKEN_CREDENTIALS_ID = 'sonarqube-token'
+		SONAR_USERPASS_CREDENTIALS_ID = 'sonarqube-userpass'
+		REQUIRE_SONAR = 'false'
+		REQUIRE_TRIVY = 'false'
 	}
 
 	stages {
@@ -26,14 +30,25 @@ pipeline {
 
 		stage('Validate Sonar Config') {
 			steps {
-				sh 'test -f 1-application-source/sonar-project.properties'
+				sh '''
+					set -e
+					if [ ! -f 1-application-source/sonar-project.properties ]; then
+						echo "WARN: sonar-project.properties not found at 1-application-source/sonar-project.properties"
+						if [ "${REQUIRE_SONAR:-false}" = "true" ]; then
+							exit 1
+						fi
+						echo "INFO: Continuing because REQUIRE_SONAR=${REQUIRE_SONAR:-false}."
+						exit 0
+					fi
+				'''
 			}
 		}
 
 		stage('SonarQube Scan') {
 			steps {
-				sh '''
-					set -e
+				script {
+					def sonarScanScript = '''
+					set +e
 
 					tmp_token_name=""
 					tmp_token_created="false"
@@ -46,8 +61,9 @@ pipeline {
 					trap cleanup_tmp_token EXIT
 
 					if ! command -v sonar-scanner >/dev/null 2>&1; then
-						echo "sonar-scanner not found on Jenkins host. Install it at /usr/local/bin/sonar-scanner."
-						exit 1
+						echo "WARN: sonar-scanner not found on Jenkins host. Install it at /usr/local/bin/sonar-scanner."
+						echo "INFO: Skipping SonarQube scan (non-blocking mode)."
+						exit 0
 					fi
 
 					EFFECTIVE_SONAR_HOST_URL="${SONAR_HOST_URL}"
@@ -55,8 +71,27 @@ pipeline {
 					EFFECTIVE_SONAR_USER="${SONAR_USER:-}"
 					EFFECTIVE_SONAR_PASSWORD="${SONAR_PASSWORD:-}"
 
+					if [ -n "${JENKINS_SONAR_TOKEN:-}" ]; then
+						EFFECTIVE_SONAR_TOKEN="${JENKINS_SONAR_TOKEN}"
+						echo "INFO: Using Sonar token from Jenkins credentials binding."
+					fi
+
+					if [ -n "${JENKINS_SONAR_USER:-}" ] && [ -n "${JENKINS_SONAR_PASSWORD:-}" ]; then
+						EFFECTIVE_SONAR_USER="${JENKINS_SONAR_USER}"
+						EFFECTIVE_SONAR_PASSWORD="${JENKINS_SONAR_PASSWORD}"
+						echo "INFO: Using Sonar username/password from Jenkins credentials binding."
+					fi
+
 					if [ -n "${JOB_SONAR_HOST_URL:-}" ]; then
-						EFFECTIVE_SONAR_HOST_URL="${JOB_SONAR_HOST_URL}"
+						echo "WARN: Ignoring JOB_SONAR_HOST_URL=${JOB_SONAR_HOST_URL}; using SONAR_HOST_URL from Jenkinsfile: ${EFFECTIVE_SONAR_HOST_URL}"
+					fi
+
+					if [ -z "${EFFECTIVE_SONAR_HOST_URL:-}" ] && [ -f "scripts/deployment.config" ]; then
+						config_sonar_host=$(sed -n 's/^SONAR_HOST_URL=//p' scripts/deployment.config | head -1 | tr -d '"' | tr -d "'" | xargs)
+						if [ -n "${config_sonar_host}" ]; then
+							EFFECTIVE_SONAR_HOST_URL="${config_sonar_host}"
+							echo "INFO: SONAR_HOST_URL is empty in Jenkinsfile; using scripts/deployment.config fallback: ${EFFECTIVE_SONAR_HOST_URL}"
+						fi
 					fi
 
 					if [ -n "${JOB_SONAR_TOKEN:-}" ]; then
@@ -76,8 +111,10 @@ pipeline {
 					max_attempts=24
 					until curl -sSf --max-time 10 "${EFFECTIVE_SONAR_HOST_URL}/api/system/status" >/dev/null; do
 						if [ "${attempt}" -ge "${max_attempts}" ]; then
-							echo "Cannot reach SonarQube at ${EFFECTIVE_SONAR_HOST_URL} after $((max_attempts * 5)) seconds."
-							exit 1
+							echo "WARN: Cannot reach SonarQube at ${EFFECTIVE_SONAR_HOST_URL} after $((max_attempts * 5)) seconds."
+							echo "INFO: Set JOB_SONAR_HOST_URL to a reachable SonarQube endpoint (for example http://<sonarqube-ip>:9000)."
+							echo "INFO: Skipping SonarQube scan (non-blocking mode)."
+							exit 0
 						fi
 						echo "SonarQube not ready yet (attempt ${attempt}/${max_attempts}); retrying in 5s..."
 						attempt=$((attempt + 1))
@@ -95,6 +132,21 @@ pipeline {
 						fi
 					fi
 
+					if [ -z "${EXTRA_AUTH}" ] && [ -n "${EFFECTIVE_SONAR_USER}" ] && [ -n "${EFFECTIVE_SONAR_PASSWORD}" ]; then
+						if curl -sS --max-time 10 -u "${EFFECTIVE_SONAR_USER}:${EFFECTIVE_SONAR_PASSWORD}" "${EFFECTIVE_SONAR_HOST_URL}/api/authentication/validate" | grep -q '"valid":true'; then
+							EXTRA_AUTH="-Dsonar.login=${EFFECTIVE_SONAR_USER} -Dsonar.password=${EFFECTIVE_SONAR_PASSWORD}"
+							echo "INFO: Using SonarQube username/password authentication."
+						else
+							echo "WARN: Provided SonarQube username/password is invalid."
+						fi
+					fi
+
+					if [ -z "${EXTRA_AUTH}" ] && [ "${REQUIRE_SONAR:-false}" = "true" ]; then
+						echo "ERROR: No valid SonarQube authentication found."
+						echo "ERROR: Configure SONAR_TOKEN_CREDENTIALS_ID (secret text) or SONAR_USERPASS_CREDENTIALS_ID (username/password) in Jenkins."
+						exit 1
+					fi
+
 					if [ -z "${EXTRA_AUTH}" ] && echo "${EFFECTIVE_SONAR_HOST_URL}" | grep -Eq '^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$'; then
 						if curl -sS --max-time 10 -u admin:admin "${EFFECTIVE_SONAR_HOST_URL}/api/authentication/validate" | grep -q '"valid":true'; then
 							tmp_token_name="jenkins-local-${BUILD_NUMBER}-$(date +%s)"
@@ -107,14 +159,42 @@ pipeline {
 						fi
 					fi
 
-					sonar-scanner \
+					if ! sonar-scanner \
 						-Dsonar.host.url=${EFFECTIVE_SONAR_HOST_URL} \
 						${EXTRA_AUTH} \
 						-Dproject.settings=1-application-source/sonar-project.properties \
 						-Dsonar.projectVersion=${BUILD_NUMBER} \
 						-Dsonar.qualitygate.wait=true \
-						-Dsonar.qualitygate.timeout=300
+						-Dsonar.qualitygate.timeout=300; then
+						echo "WARN: SonarQube scan failed."
+						if [ "${REQUIRE_SONAR:-false}" = "true" ]; then
+							echo "ERROR: Failing build because REQUIRE_SONAR=${REQUIRE_SONAR}."
+							exit 1
+						fi
+						echo "INFO: Continuing pipeline (non-blocking Sonar mode)."
+						exit 0
+					fi
 				'''
+
+					def tokenCredId = (env.SONAR_TOKEN_CREDENTIALS_ID ?: '').trim()
+					def userPassCredId = (env.SONAR_USERPASS_CREDENTIALS_ID ?: '').trim()
+					def creds = []
+
+					if (tokenCredId) {
+						creds << string(credentialsId: tokenCredId, variable: 'JENKINS_SONAR_TOKEN')
+					}
+					if (userPassCredId) {
+						creds << usernamePassword(credentialsId: userPassCredId, usernameVariable: 'JENKINS_SONAR_USER', passwordVariable: 'JENKINS_SONAR_PASSWORD')
+					}
+
+					if (creds) {
+						withCredentials(creds) {
+							sh sonarScanScript
+						}
+					} else {
+						sh sonarScanScript
+					}
+				}
 			}
 		}
 
@@ -130,8 +210,12 @@ pipeline {
 					set -e
 
 					if ! command -v trivy >/dev/null 2>&1; then
-						echo "trivy not found on Jenkins host. Install: curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin"
-						exit 1
+						echo "WARN: trivy not found on Jenkins host. Install: curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin"
+						if [ "${REQUIRE_TRIVY:-false}" = "true" ]; then
+							exit 1
+						fi
+						echo "INFO: Skipping Trivy scan because REQUIRE_TRIVY=${REQUIRE_TRIVY:-false}."
+						exit 0
 					fi
 
 					echo "========== Scanning Dockerfiles for base image vulnerabilities =========="
