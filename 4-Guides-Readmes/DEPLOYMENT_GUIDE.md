@@ -7,7 +7,7 @@ This guide provides the core steps for deploying the Multi-Stack Voting Applicat
 This repository contains:
 
 - `deploy.sh` - orchestration script for build, infrastructure, and application deployment
-- `validate.sh` - pre-deployment validator
+- `deploy.sh validate` - pre-deployment validator
 - `deployment.config` - centralized configuration file
 - `1-application-source/` - application service sources
 - `2-infrastructure-as-code/terraform/` - AWS infrastructure code
@@ -48,7 +48,7 @@ Optional settings include:
 Run:
 
 ```bash
-./validate.sh
+./deploy.sh validate
 ```
 
 This checks tool availability, AWS access, configuration, and project structure.

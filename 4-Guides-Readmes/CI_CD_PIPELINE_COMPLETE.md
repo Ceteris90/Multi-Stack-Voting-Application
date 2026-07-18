@@ -315,9 +315,7 @@ Multi-Stack-Voting-Application/
 │   └── CI_CD_EXAMPLES.md
 │
 └── scripts/                       # Deployment & validation
-    ├── deploy.sh                  # Deployment with CI/CD docs
-    ├── validate.sh
-    └── test-alerts.sh
+   └── deploy.sh                  # Deployment, validation, and alert testing commands
 ```
 
 ---

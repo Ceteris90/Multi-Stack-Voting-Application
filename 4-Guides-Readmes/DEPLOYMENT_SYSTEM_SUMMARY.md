@@ -12,7 +12,7 @@ Complete deployment solution for Multi-Stack Voting Application with zero hardco
 |------|---------|
 | **`deploy.sh`** | Main orchestration script - handles build, deploy, cleanup |
 | **`deployment.config`** | Central configuration file - ALL settings in one place |
-| **`validate.sh`** | Pre-deployment validation - checks tools, configs, AWS access |
+| **`deploy.sh validate`** | Pre-deployment validation - checks tools, configs, AWS access |
 
 ### Documentation Files
 
@@ -33,7 +33,7 @@ cd ~/Documents/Multi-Stack-Voting-Application
 nano deployment.config
 
 # 2. Validate everything is set up
-./validate.sh
+./deploy.sh validate
 
 # 3. Preview what will be deployed
 ./deploy.sh deploy --dry-run
@@ -130,7 +130,7 @@ See `deployment.config` for complete list of settings.
 
 ```bash
 # Validate configuration and tools
-./validate.sh
+./deploy.sh validate
 
 # This checks:
 # ✓ Required tools (Docker, Terraform, AWS CLI, kubectl)
@@ -309,7 +309,7 @@ terraform state list
 ### Validate Setup
 
 ```bash
-./validate.sh
+./deploy.sh validate
 # Checks all prerequisites before attempting deployment
 ```
 
@@ -405,7 +405,7 @@ aws iam attach-role-policy --role-name voting-app-deployer \
 | `CI_CD_EXAMPLES.md` | GitHub Actions, GitLab CI, Jenkins examples |
 | `deploy.sh` | Main deployment script (self-documented) |
 | `deployment.config` | Configuration file with descriptions |
-| `validate.sh` | Validation script with detailed checks |
+| `deploy.sh validate` | Validation script with detailed checks |
 
 ---
 
@@ -418,7 +418,7 @@ aws iam attach-role-policy --role-name voting-app-deployer \
 
 2. **Validate Setup**
    ```bash
-   ./validate.sh
+   ./deploy.sh validate
    ```
 
 3. **Preview Deployment**
@@ -449,7 +449,7 @@ aws iam attach-role-policy --role-name voting-app-deployer \
 ## 📞 Support
 
 - **Logs**: `/tmp/voting-app-deployment.log`
-- **Validation**: `./validate.sh`
+- **Validation**: `./deploy.sh validate`
 - **Dry-run**: `./deploy.sh deploy --dry-run`
 - **Config help**: `nano deployment.config` (all settings documented)
 - **Full guide**: `README_DEPLOYMENT.md`
@@ -464,7 +464,7 @@ User Request
 deployment.config (All configuration)
     ↓
 deploy.sh (Orchestration)
-    ├── validate.sh (Pre-flight checks)
+   ├── validate command (Pre-flight checks)
     ├── Docker Build (1-application-source/)
     ├── Docker Push (Docker registry)
     ├── Terraform Apply (2-infrastructure-as-code/)

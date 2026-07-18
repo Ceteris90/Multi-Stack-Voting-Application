@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v3
       
       - name: Run validation checks
-        run: chmod +x validate.sh && ./validate.sh
+        run: chmod +x deploy.sh && ./deploy.sh validate
 
   build:
     name: Build & Push Images
@@ -92,7 +92,7 @@ jobs:
       
       - name: Setup deployment environment
         run: |
-          chmod +x deploy.sh validate.sh
+          chmod +x deploy.sh
           # Create config from secrets
           cat > deployment.config << EOF
           AWS_REGION=${{ env.AWS_REGION }}
@@ -127,7 +127,7 @@ jobs:
       
       - name: Setup deployment environment
         run: |
-          chmod +x deploy.sh validate.sh
+          chmod +x deploy.sh
           # Create config from secrets
           cat > deployment.config << EOF
           AWS_REGION=${{ env.AWS_REGION }}
@@ -194,8 +194,8 @@ validate:
   before_script:
     - apt-get update && apt-get install -y curl git
   script:
-    - chmod +x validate.sh
-    - ./validate.sh
+    - chmod +x deploy.sh
+    - ./deploy.sh validate
   only:
     - main
     - develop
@@ -327,8 +327,8 @@ pipeline {
         stage('Validate') {
             steps {
                 sh '''
-                    chmod +x validate.sh
-                    ./validate.sh
+                    chmod +x deploy.sh
+                    ./deploy.sh validate
                 '''
             }
         }

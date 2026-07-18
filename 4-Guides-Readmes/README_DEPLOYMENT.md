@@ -15,7 +15,7 @@ cd ~/Documents/Multi-Stack-Voting-Application
 nano deployment.config
 
 # 2. Validate setup
-./validate.sh
+./deploy.sh validate
 
 # 3. Deploy everything
 ./deploy.sh deploy
@@ -29,7 +29,7 @@ That's it! Everything is configured through `deployment.config` - no hardcoding 
 
 ### Deployment Scripts (Executable)
 - **`deploy.sh`** - Main orchestrator (19KB, fully documented)
-- **`validate.sh`** - Pre-deployment validation (9KB)
+- **`deploy.sh validate`** - Pre-deployment validation (9KB)
 
 ### Configuration (Centralized)
 - **`deployment.config`** - All settings in ONE place (never hardcoded)
@@ -121,7 +121,7 @@ DRY_RUN="false"                 # true for preview mode
 ### Validate
 
 ```bash
-./validate.sh                   # Check tools, config, AWS access
+./deploy.sh validate                   # Check tools, config, AWS access
 ```
 
 ---
@@ -186,8 +186,7 @@ echo "DOCKER_REGISTRY=$DOCKER_REGISTRY" >> deployment.config
 
 ```
 deployment-system/
-├── deploy.sh                      # Main orchestrator (executable)
-├── validate.sh                    # Validator (executable)
+├── deploy.sh                      # Main orchestrator (deploy/validate/test-alerts)
 ├── deployment.config              # Configuration (edit this!)
 ├── README_DEPLOYMENT.md          # This file
 ├── QUICK_START.md                # 2-minute reference
@@ -216,7 +215,7 @@ docker-compose.yml                # Docker Compose configuration
 Before deploying, run the validator:
 
 ```bash
-./validate.sh
+./deploy.sh validate
 ```
 
 This checks:
@@ -325,7 +324,7 @@ cd 2-infrastructure-as-code/terraform/environments/dev && terraform destroy
 
 ### ✅ Safe
 - Preview mode: `--dry-run` shows what would happen
-- Pre-flight validation: `./validate.sh`
+- Pre-flight validation: `./deploy.sh validate`
 - Proper error handling and logging
 - Automatic rollback on failure
 
@@ -349,7 +348,7 @@ cd 2-infrastructure-as-code/terraform/environments/dev && terraform destroy
 ### Validation Fails
 
 ```bash
-./validate.sh
+./deploy.sh validate
 # Shows what needs to be fixed
 ```
 
@@ -402,7 +401,7 @@ See **README_DEPLOYMENT.md** for more troubleshooting.
 
 1. **Quick answer**: Read QUICK_START.md
 2. **Complete reference**: See README_DEPLOYMENT.md
-3. **Pre-deployment check**: Run `./validate.sh`
+3. **Pre-deployment check**: Run `./deploy.sh validate`
 4. **Preview changes**: Use `./deploy.sh deploy --dry-run`
 5. **Check logs**: `tail -f /tmp/voting-app-deployment.log`
 6. **View config**: `cat deployment.config`
@@ -416,7 +415,7 @@ User runs: ./deploy.sh deploy
     ↓
 Script reads deployment.config (all settings in one place)
     ↓
-Runs validate.sh (pre-flight checks)
+Runs ./deploy.sh validate (pre-flight checks)
     ↓
 Builds Docker images (from 1-application-source/)
     ↓
@@ -473,7 +472,7 @@ POSTGRES_PASSWORD="very-secure-password"
 
 1. **Read QUICK_START.md** (2 minutes)
 2. **Edit deployment.config** (5 minutes)
-3. **Run validate.sh** (2 minutes)
+3. **Run ./deploy.sh validate** (2 minutes)
 4. **Preview with --dry-run** (2 minutes)
 5. **Deploy!** `./deploy.sh deploy`
 
@@ -487,4 +486,4 @@ See LICENSE file in the project root.
 
 **Everything you need is in ONE configuration file. No hardcoding. Complete automation. Deploy with confidence!**
 
-Questions? Check `README_DEPLOYMENT.md` or run `./validate.sh` for diagnostics.
+Questions? Check `README_DEPLOYMENT.md` or run `./deploy.sh validate` for diagnostics.

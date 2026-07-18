@@ -263,6 +263,14 @@ validate_config() {
     local previous_skip_build="${SKIP_BUILD:-}"
     local previous_skip_terraform="${SKIP_TERRAFORM:-}"
     local previous_skip_k8s="${SKIP_K8S_DEPLOY:-}"
+    local previous_ansible_inventory_file="${ANSIBLE_INVENTORY_FILE:-}"
+    local previous_ansible_setup_playbook="${ANSIBLE_SETUP_PLAYBOOK:-}"
+    local previous_ansible_deploy_playbook="${ANSIBLE_DEPLOY_PLAYBOOK:-}"
+    local previous_ansible_remote_user="${ANSIBLE_REMOTE_USER:-}"
+    local previous_ansible_backend_host="${ANSIBLE_BACKEND_HOST:-}"
+    local previous_ansible_frontend_host="${ANSIBLE_FRONTEND_HOST:-}"
+    local previous_ansible_backend_group="${ANSIBLE_BACKEND_GROUP:-${ANSIBLE_BACKEND_INVENTORY_NAME:-}}"
+    local previous_ansible_frontend_group="${ANSIBLE_FRONTEND_GROUP:-${ANSIBLE_FRONTEND_INVENTORY_NAME:-}}"
 
     log_info "Loading configuration from: ${CONFIG_FILE}"
     source "${CONFIG_FILE}"
@@ -308,6 +316,38 @@ validate_config() {
 
     if [[ -n "${previous_skip_k8s}" ]]; then
         SKIP_K8S_DEPLOY="${previous_skip_k8s}"
+    fi
+
+    if [[ -n "${previous_ansible_inventory_file}" ]]; then
+        ANSIBLE_INVENTORY_FILE="${previous_ansible_inventory_file}"
+    fi
+
+    if [[ -n "${previous_ansible_setup_playbook}" ]]; then
+        ANSIBLE_SETUP_PLAYBOOK="${previous_ansible_setup_playbook}"
+    fi
+
+    if [[ -n "${previous_ansible_deploy_playbook}" ]]; then
+        ANSIBLE_DEPLOY_PLAYBOOK="${previous_ansible_deploy_playbook}"
+    fi
+
+    if [[ -n "${previous_ansible_remote_user}" ]]; then
+        ANSIBLE_REMOTE_USER="${previous_ansible_remote_user}"
+    fi
+
+    if [[ -n "${previous_ansible_backend_host}" ]]; then
+        ANSIBLE_BACKEND_HOST="${previous_ansible_backend_host}"
+    fi
+
+    if [[ -n "${previous_ansible_frontend_host}" ]]; then
+        ANSIBLE_FRONTEND_HOST="${previous_ansible_frontend_host}"
+    fi
+
+    if [[ -n "${previous_ansible_backend_group}" ]]; then
+        ANSIBLE_BACKEND_GROUP="${previous_ansible_backend_group}"
+    fi
+
+    if [[ -n "${previous_ansible_frontend_group}" ]]; then
+        ANSIBLE_FRONTEND_GROUP="${previous_ansible_frontend_group}"
     fi
 
     # Auto-detect Docker Hub username from local docker login session when unset.
@@ -600,6 +640,10 @@ render_ansible_inventory() {
     local inventory_file="${ANSIBLE_INVENTORY_FILE:-${PROJECT_ROOT}/2-infrastructure-as-code/Ansible/generated_inventory.ini}"
     mkdir -p "$(dirname "${inventory_file}")"
 
+    local backend_group_name="${ANSIBLE_BACKEND_GROUP:-${ANSIBLE_BACKEND_INVENTORY_NAME:-backend}}"
+    local frontend_group_name="${ANSIBLE_FRONTEND_GROUP:-${ANSIBLE_FRONTEND_INVENTORY_NAME:-frontend}}"
+    local backend_inventory_name="${ANSIBLE_BACKEND_INVENTORY_NAME:-backend01}"
+    local frontend_inventory_name="${ANSIBLE_FRONTEND_INVENTORY_NAME:-frontend01}"
     local backend_connection="ssh"
     local frontend_connection="ssh"
 
@@ -612,11 +656,11 @@ render_ansible_inventory() {
     fi
 
     cat > "${inventory_file}" <<EOF
-[backend]
-backend01 ansible_host=${ANSIBLE_BACKEND_HOST:-127.0.0.1} ansible_user=${ANSIBLE_REMOTE_USER:-ubuntu} ansible_connection=${backend_connection}
+[${backend_group_name}]
+${backend_inventory_name} ansible_host=${ANSIBLE_BACKEND_HOST:-127.0.0.1} ansible_user=${ANSIBLE_REMOTE_USER:-ubuntu} ansible_connection=${backend_connection}
 
-[frontend]
-frontend01 ansible_host=${ANSIBLE_FRONTEND_HOST:-127.0.0.1} ansible_user=${ANSIBLE_REMOTE_USER:-ubuntu} ansible_connection=${frontend_connection}
+[${frontend_group_name}]
+${frontend_inventory_name} ansible_host=${ANSIBLE_FRONTEND_HOST:-127.0.0.1} ansible_user=${ANSIBLE_REMOTE_USER:-ubuntu} ansible_connection=${frontend_connection}
 EOF
 
     log_info "Rendered Ansible inventory at ${inventory_file}"
@@ -661,6 +705,8 @@ deploy_with_ansible() {
     ansible-playbook -i "${inventory_file}" "${setup_playbook}" \
         -e "ansible_docker_user=${ANSIBLE_REMOTE_USER:-ubuntu}" \
         -e "ansible_become=${ANSIBLE_BECOME:-false}" \
+        -e "ansible_backend_group=${ANSIBLE_BACKEND_GROUP:-${ANSIBLE_BACKEND_INVENTORY_NAME:-backend}}" \
+        -e "ansible_frontend_group=${ANSIBLE_FRONTEND_GROUP:-${ANSIBLE_FRONTEND_INVENTORY_NAME:-frontend}}" \
         -e "db_host=${DB_HOST:-localhost}" \
         -e "db_port=${DB_PORT:-5432}" \
         -e "db_username=${POSTGRES_USER:-postgres}" \
@@ -677,6 +723,8 @@ deploy_with_ansible() {
     ansible-playbook -i "${inventory_file}" "${deploy_playbook}" \
         -e "ansible_docker_user=${ANSIBLE_REMOTE_USER:-ubuntu}" \
         -e "ansible_become=${ANSIBLE_BECOME:-false}" \
+        -e "ansible_backend_group=${ANSIBLE_BACKEND_GROUP:-${ANSIBLE_BACKEND_INVENTORY_NAME:-backend}}" \
+        -e "ansible_frontend_group=${ANSIBLE_FRONTEND_GROUP:-${ANSIBLE_FRONTEND_INVENTORY_NAME:-frontend}}" \
         -e "db_host=${DB_HOST:-localhost}" \
         -e "db_port=${DB_PORT:-5432}" \
         -e "db_username=${POSTGRES_USER:-postgres}" \
@@ -1455,6 +1503,350 @@ display_deployment_info() {
     echo ""
 }
 
+run_preflight_validation() {
+    local checks_passed=0
+    local checks_failed=0
+
+    check_pass() {
+        echo -e "${GREEN}✓${NC} $1"
+        ((checks_passed++))
+    }
+
+    check_fail() {
+        echo -e "${RED}✗${NC} $1"
+        ((checks_failed++))
+    }
+
+    check_warn() {
+        echo -e "${YELLOW}⚠${NC} $1"
+    }
+
+    section() {
+        echo ""
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BLUE}$1${NC}"
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    }
+
+    set +e
+
+    section "CHECKING REQUIRED TOOLS"
+
+    if command -v docker &> /dev/null; then
+        docker_version=$(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',')
+        [ -z "$docker_version" ] && docker_version="Unknown"
+        check_pass "Docker installed (v${docker_version})"
+    else
+        check_fail "Docker not found - install from https://docs.docker.com/get-docker/"
+    fi
+
+    if command -v docker-compose &> /dev/null; then
+        compose_version=$(docker-compose version --short 2>/dev/null || docker-compose --version 2>/dev/null | awk '{print $4}')
+        [ -z "$compose_version" ] && compose_version="Unknown"
+        check_pass "Docker Compose installed (${compose_version})"
+    elif docker compose version &> /dev/null; then
+        compose_version=$(docker compose version --short 2>/dev/null || docker compose version 2>/dev/null | awk '{print $4}')
+        check_pass "Docker Compose plugin installed (${compose_version})"
+    else
+        check_warn "Docker Compose not found - some deployments may not work"
+    fi
+
+    if command -v terraform &> /dev/null; then
+        tf_version=$(terraform -version 2>/dev/null | head -n1 | awk '{print $2}')
+        [ -z "$tf_version" ] && tf_version="Unknown"
+        check_pass "Terraform installed (${tf_version})"
+    else
+        check_fail "Terraform not found - install from https://www.terraform.io/downloads"
+    fi
+
+    if command -v aws &> /dev/null; then
+        aws_version=$(aws --version 2>&1 | awk '{print $1}' | cut -d'/' -f2)
+        [ -z "$aws_version" ] && aws_version="Unknown"
+        check_pass "AWS CLI installed (v${aws_version})"
+    else
+        check_fail "AWS CLI not found - install from https://aws.amazon.com/cli/"
+    fi
+
+    if command -v kubectl &> /dev/null; then
+        kubectl_version=$(kubectl version --client 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+        [ -z "$kubectl_version" ] && kubectl_version="Unknown"
+        check_pass "kubectl installed (${kubectl_version})"
+    else
+        check_warn "kubectl not found - Kubernetes deployments will not work"
+    fi
+
+    if command -v ansible-playbook &> /dev/null; then
+        ansible_version=$(ansible-playbook --version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+        [ -z "$ansible_version" ] && ansible_version="Unknown"
+        check_pass "Ansible installed (v${ansible_version})"
+    else
+        check_warn "ansible-playbook not found - Ansible deployment will not work"
+    fi
+
+    section "CHECKING CONFIGURATION FILE"
+
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        check_pass "Configuration file found: ${CONFIG_FILE}"
+        source "${CONFIG_FILE}" 2>/dev/null
+
+        default_ansible_inventory="${PROJECT_ROOT}/2-infrastructure-as-code/Ansible/generated_inventory.ini"
+        default_ansible_setup="${PROJECT_ROOT}/2-infrastructure-as-code/Ansible/playbook-setup.yml"
+        default_ansible_deploy="${PROJECT_ROOT}/2-infrastructure-as-code/Ansible/playbook-deploy.yml"
+
+        if [[ -z "${ANSIBLE_INVENTORY_FILE:-}" ]] || [[ ! -f "${ANSIBLE_INVENTORY_FILE}" ]]; then
+            ANSIBLE_INVENTORY_FILE="${default_ansible_inventory}"
+        fi
+
+        if [[ -z "${ANSIBLE_SETUP_PLAYBOOK:-}" ]] || [[ ! -f "${ANSIBLE_SETUP_PLAYBOOK}" ]]; then
+            ANSIBLE_SETUP_PLAYBOOK="${default_ansible_setup}"
+        fi
+
+        if [[ -z "${ANSIBLE_DEPLOY_PLAYBOOK:-}" ]] || [[ ! -f "${ANSIBLE_DEPLOY_PLAYBOOK}" ]]; then
+            ANSIBLE_DEPLOY_PLAYBOOK="${default_ansible_deploy}"
+        fi
+    else
+        check_fail "Configuration file not found: ${CONFIG_FILE}"
+        check_fail "Run deployment script to generate default config"
+    fi
+
+    section "VALIDATING CONFIGURATION VALUES"
+
+    if [[ -n "${AWS_REGION:-}" ]]; then
+        check_pass "AWS_REGION configured: ${AWS_REGION}"
+    else
+        check_fail "AWS_REGION not set in deployment.config"
+    fi
+
+    echo -ne "${YELLOW}Enter EC2 ssh key name: ${NC}"
+    read -r TF_VAR_key_name
+
+    if [[ -n "${TF_VAR_key_name:-}" ]] && [[ "${TF_VAR_key_name}" != "your-ec2-key-pair" ]]; then
+        check_pass "EC2 key pair configured: ${TF_VAR_key_name}"
+    else
+        check_fail "TF_VAR_key_name not properly configured (update in deployment.config)"
+    fi
+
+    echo -ne "${YELLOW}Enter Docker Registry Username: ${NC}"
+    read -r DOCKER_REGISTRY_USERNAME
+
+    echo -ne "${YELLOW}Enter Docker Registry Password/Token: ${NC}"
+    read -r DOCKER_PASSWORD
+
+    if [[ -n "${DOCKER_REGISTRY_USERNAME:-}" ]] && [[ "${DOCKER_REGISTRY_USERNAME}" != "your-docker-username" ]]; then
+        check_pass "Docker registry username configured: ${DOCKER_REGISTRY_USERNAME}"
+        if [[ -n "${DOCKER_PASSWORD:-}" ]] && [[ "${DOCKER_PASSWORD}" != "your-docker-password-or-access-token" ]]; then
+            check_pass "Docker registry password/token configured"
+        else
+            check_warn "DOCKER_PASSWORD not set; will rely on existing docker login session if available"
+        fi
+    else
+        check_warn "DOCKER_REGISTRY_USERNAME not set (required for image push)"
+    fi
+
+    echo -ne "${YELLOW}Enter PostgreSQL Password: ${NC}"
+    read -r POSTGRES_PASSWORD
+
+    if [[ -n "${POSTGRES_PASSWORD:-}" ]] && [[ "${POSTGRES_PASSWORD}" != "postgres-password-123" ]]; then
+        check_pass "Database password configured (hidden for security)"
+    else
+        check_fail "POSTGRES_PASSWORD using default value - change in deployment.config"
+    fi
+
+    section "CHECKING AWS CONNECTIVITY"
+
+    if command -v aws &> /dev/null; then
+        account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
+        if [ $? -eq 0 ] && [ -n "$account_id" ]; then
+            check_pass "AWS credentials valid (Account: ${account_id})"
+        else
+            check_fail "AWS credentials not configured - run: aws configure"
+        fi
+    else
+        check_warn "AWS CLI not found - cannot verify AWS connectivity"
+    fi
+
+    section "CHECKING PROJECT STRUCTURE"
+
+    required_dirs=(
+        "1-application-source"
+        "2-infrastructure-as-code"
+        "3-gitops-manifests"
+    )
+
+    for dir in "${required_dirs[@]}"; do
+        if [[ -d "${PROJECT_ROOT}/${dir}" ]]; then
+            check_pass "Directory found: ${dir}"
+        else
+            check_fail "Directory missing: ${dir}"
+        fi
+    done
+
+    required_files=(
+        "1-application-source/vote/Dockerfile"
+        "1-application-source/result/Dockerfile"
+        "1-application-source/worker/Dockerfile"
+        "2-infrastructure-as-code/terraform/environments/dev/main.tf"
+        "docker-compose.yml"
+        "scripts/deploy.sh"
+    )
+
+    for file in "${required_files[@]}"; do
+        if [[ -f "${PROJECT_ROOT}/${file}" ]]; then
+            check_pass "File found: ${file}"
+        else
+            check_fail "File missing: ${file}"
+        fi
+    done
+
+    if [[ -f "${PROJECT_ROOT}/deployment.config" ]]; then
+        check_pass "File found: deployment.config"
+    elif [[ -f "${SCRIPT_DIR}/deployment.config" ]]; then
+        check_pass "File found: scripts/deployment.config"
+    else
+        check_fail "File missing: deployment.config (expected in repo root or scripts/)"
+    fi
+
+    section "CHECKING ANSIBLE CONFIGURATION"
+
+    if [[ "${ANSIBLE_ENABLED:-false}" == "true" ]]; then
+        check_pass "Ansible deployment enabled"
+
+        if [[ -f "${ANSIBLE_SETUP_PLAYBOOK:-}" ]]; then
+            check_pass "Ansible setup playbook found: ${ANSIBLE_SETUP_PLAYBOOK}"
+        else
+            check_fail "Ansible setup playbook not found: ${ANSIBLE_SETUP_PLAYBOOK:-}"
+        fi
+
+        if [[ -f "${ANSIBLE_DEPLOY_PLAYBOOK:-}" ]]; then
+            check_pass "Ansible deploy playbook found: ${ANSIBLE_DEPLOY_PLAYBOOK}"
+        else
+            check_fail "Ansible deploy playbook not found: ${ANSIBLE_DEPLOY_PLAYBOOK:-}"
+        fi
+
+        if [[ -f "${ANSIBLE_INVENTORY_FILE:-}" ]]; then
+            check_pass "Ansible inventory file found: ${ANSIBLE_INVENTORY_FILE}"
+        else
+            check_warn "Ansible inventory file not found yet - deploy.sh will generate it"
+        fi
+    else
+        check_warn "Ansible deployment disabled in deployment.config"
+    fi
+
+    section "CHECKING DOCKER DAEMON"
+
+    if command -v docker &> /dev/null; then
+        if docker ps &> /dev/null; then
+            check_pass "Docker daemon is running"
+        else
+            check_fail "Docker daemon not running - start Docker service"
+        fi
+    else
+        check_warn "Docker not available - cannot check daemon status"
+    fi
+
+    section "CHECKING FILE PERMISSIONS"
+
+    if [[ -x "${PROJECT_ROOT}/scripts/deploy.sh" ]]; then
+        check_pass "scripts/deploy.sh is executable"
+    else
+        check_warn "scripts/deploy.sh not executable - run: chmod +x scripts/deploy.sh"
+    fi
+
+    section "CHECKING TERRAFORM CONFIGURATION"
+
+    tf_dir="${PROJECT_ROOT}/2-infrastructure-as-code/terraform"
+
+    if [[ -d "${tf_dir}" ]]; then
+        check_pass "Terraform directory found"
+
+        main_tf_count=$(find "${tf_dir}" -name "main.tf" -type f 2>/dev/null | wc -l)
+        if [[ ${main_tf_count} -gt 0 ]]; then
+            check_pass "Terraform modules found (${main_tf_count} main.tf files)"
+        else
+            check_fail "No Terraform modules found"
+        fi
+    else
+        check_fail "Terraform directory not found"
+    fi
+
+    section "CHECKING DOCKER IMAGES"
+
+    docker_images=("vote" "result" "worker")
+
+    for image in "${docker_images[@]}"; do
+        if docker images 2>/dev/null | grep -q "$image"; then
+            check_pass "Docker image found: ${image}"
+        else
+            check_warn "Docker image not built: ${image} (will be built during deployment)"
+        fi
+    done
+
+    section "SUMMARY"
+
+    set -e
+
+    total_checks=$((checks_passed + checks_failed))
+    echo ""
+    echo -e "Checks Passed: ${GREEN}${checks_passed}/${total_checks}${NC}"
+    if [[ ${checks_failed} -gt 0 ]]; then
+        echo -e "Checks Failed: ${RED}${checks_failed}/${total_checks}${NC}"
+    fi
+    echo ""
+
+    if [[ ${checks_failed} -eq 0 ]]; then
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${GREEN}✓ ALL CHECKS PASSED - Ready to deploy!${NC}"
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo "Next steps:"
+        echo "  1. Review and customize: nano deployment.config"
+        echo "  2. Preview deployment: ./scripts/deploy.sh deploy --dry-run"
+        echo "  3. Deploy: ./scripts/deploy.sh deploy"
+        echo ""
+        return 0
+    fi
+
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${RED}✗ SOME CHECKS FAILED - Fix issues before deploying${NC}"
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Issues to fix:"
+    echo "  - Install missing tools (see above)"
+    echo "  - Update deployment.config with your values"
+    echo "  - Verify AWS credentials (aws configure)"
+    echo ""
+    return 1
+}
+
+run_test_alerts() {
+    local tf_dir="${PROJECT_ROOT}/2-infrastructure-as-code/terraform/environments/dev"
+
+    echo "Discovering SNS topic ARN from Terraform outputs..."
+    pushd "${tf_dir}" >/dev/null
+    SNS_ARN=$(terraform output -raw dev_alerts_sns_topic_arn 2>/dev/null || true)
+    popd >/dev/null
+
+    if [[ -z "${SNS_ARN:-}" ]]; then
+        echo "SNS topic ARN not found. Ensure Terraform applied the dev environment and outputs are available." >&2
+        return 1
+    fi
+
+    echo "SNS ARN: ${SNS_ARN}"
+    echo "Publishing test SNS message..."
+    aws sns publish --topic-arn "${SNS_ARN}" --subject "Test Notification" --message "This is a test notification from the deployment guide."
+
+    echo "Injecting metric datapoint to trigger alarm..."
+    aws cloudwatch put-metric-data --namespace MultiStackVotingApp --metric-name VotingAppErrorCount --value 2 --unit Count
+
+    echo "Metric injected. Check alarm state with:"
+    echo "  aws cloudwatch describe-alarms --alarm-names \"dev-voting-app-error-alarm\" --query 'MetricAlarms[0].StateValue' --output text"
+
+    echo "Optional: push an ERROR log to CloudWatch Logs. This requires IAM permissions for logs:CreateLogStream and logs:PutLogEvents."
+    echo "See DEPLOYMENT_GUIDE.md for full commands to create a log stream and push a test ERROR message."
+
+    echo "Done."
+}
+
 # ============================================================================
 # USAGE INFORMATION
 # ============================================================================
@@ -1464,6 +1856,8 @@ Usage: $0 [COMMAND] [OPTIONS]
 
 COMMANDS:
     deploy          Deploy the entire application stack
+    validate        Run prerequisite and configuration validation
+    test-alerts     Send a test SNS message and CloudWatch metric
     cleanup         Tear down all deployed resources
     build           Build Docker images only
     infrastructure  Provision infrastructure only
@@ -1478,11 +1872,25 @@ OPTIONS:
     --skip-tf       Skip Terraform provisioning
     --skip-k8s      Skip Kubernetes deployment
     --config FILE   Use specific config file (default: deployment.config)
+    --ansible-backend-group NAME  Set the backend inventory group name
+    --ansible-frontend-group NAME Set the frontend inventory group name
+    --ansible-backend-name NAME   Set the backend inventory host alias
+    --ansible-frontend-name NAME  Set the frontend inventory host alias
+    --ansible-backend-host HOST   Set the backend target host/IP
+    --ansible-frontend-host HOST  Set the frontend target host/IP
+    --ansible-remote-user USER    Set the Ansible SSH user
+    --ansible-inventory-file FILE  Set the generated inventory path
     -h, --help      Show this help message
 
 EXAMPLES:
     # Deploy everything using default configuration
     $0 deploy
+
+    # Run validation
+    $0 validate
+
+    # Test alerts
+    $0 test-alerts
 
     # Trigger Jenkins build
     $0 jenkins
@@ -1546,6 +1954,42 @@ main() {
                 CONFIG_FILE="$2"
                 shift 2
                 ;;
+            --ansible-backend-group)
+                ANSIBLE_BACKEND_GROUP="$2"
+                ANSIBLE_BACKEND_INVENTORY_NAME="$2"
+                shift 2
+                ;;
+            --ansible-frontend-group)
+                ANSIBLE_FRONTEND_GROUP="$2"
+                ANSIBLE_FRONTEND_INVENTORY_NAME="$2"
+                shift 2
+                ;;
+            --ansible-backend-name)
+                ANSIBLE_BACKEND_GROUP="$2"
+                ANSIBLE_BACKEND_INVENTORY_NAME="$2"
+                shift 2
+                ;;
+            --ansible-frontend-name)
+                ANSIBLE_FRONTEND_GROUP="$2"
+                ANSIBLE_FRONTEND_INVENTORY_NAME="$2"
+                shift 2
+                ;;
+            --ansible-backend-host)
+                ANSIBLE_BACKEND_HOST="$2"
+                shift 2
+                ;;
+            --ansible-frontend-host)
+                ANSIBLE_FRONTEND_HOST="$2"
+                shift 2
+                ;;
+            --ansible-remote-user)
+                ANSIBLE_REMOTE_USER="$2"
+                shift 2
+                ;;
+            --ansible-inventory-file)
+                ANSIBLE_INVENTORY_FILE="$2"
+                shift 2
+                ;;
             -h|--help)
                 usage
                 exit 0
@@ -1562,6 +2006,12 @@ main() {
     case "${command}" in
         deploy)
             deploy
+            ;;
+        validate)
+            run_preflight_validation
+            ;;
+        test-alerts)
+            run_test_alerts
             ;;
         cleanup)
             cleanup

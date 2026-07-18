@@ -24,7 +24,7 @@ Request and processing flow:
 
 ## Repository Layout
 
-- `scripts/`: operational entrypoints (`deploy.sh`, `validate.sh`, `test-alerts.sh`)
+- `scripts/`: operational entrypoints (`deploy.sh`, `deploy.sh validate`, `deploy.sh test-alerts`)
 - `1-application-source/`: application source and Dockerfiles (vote, worker, result)
 - `2-infrastructure-as-code/`: Terraform and Ansible
 - `3-gitops-manifests/`: Kubernetes manifests and GitOps assets
@@ -60,7 +60,7 @@ Use the centralized deploy script:
 
 ```bash
 # Validate workstation and configuration
-./scripts/validate.sh
+./scripts/deploy.sh validate
 
 # Full deployment using configured defaults
 ./scripts/deploy.sh deploy
