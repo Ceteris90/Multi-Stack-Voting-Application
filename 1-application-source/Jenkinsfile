@@ -14,8 +14,8 @@ pipeline {
 	environment {
 		SONAR_HOST_URL = 'http://3.231.50.115:9000'
 		SONAR_TOKEN = ''
-		SONAR_TOKEN_CREDENTIALS_ID = 'sonarqube-token'
-		SONAR_USERPASS_CREDENTIALS_ID = 'sonarqube-userpass'
+		SONAR_TOKEN_CREDENTIALS_ID = ''
+		SONAR_USERPASS_CREDENTIALS_ID = ''
 		REQUIRE_SONAR = 'false'
 		REQUIRE_TRIVY = 'false'
 	}
@@ -188,7 +188,12 @@ pipeline {
 					}
 
 					if (creds) {
-						withCredentials(creds) {
+						try {
+							withCredentials(creds) {
+								sh sonarScanScript
+							}
+						} catch (err) {
+							echo "WARN: Unable to load configured Jenkins Sonar credentials (${err.getMessage()}). Falling back to job/environment Sonar variables."
 							sh sonarScanScript
 						}
 					} else {
