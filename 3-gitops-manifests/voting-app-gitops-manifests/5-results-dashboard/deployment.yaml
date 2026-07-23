@@ -18,7 +18,7 @@ spec:
       containers:
         - name: result
           image: docker.io/ceteris90/voting-app-result:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 4000
           env:

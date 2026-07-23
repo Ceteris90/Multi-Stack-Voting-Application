@@ -88,6 +88,13 @@ body{
   text-transform: uppercase;
 }
 
+#choice .choice .count{
+  font-size: 18px;
+  font-weight: 600;
+  opacity: 0.8;
+  margin-top: 6px;
+}
+
 #choice .choice.dogs{
   color: #00cbca;
   float: right;
